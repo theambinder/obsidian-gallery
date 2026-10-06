@@ -75,7 +75,7 @@ Standard Obsidian CSS snippets can customize Gallery. See [CSS customization](do
 
 For support, run **Gallery: Show mobile diagnostics**. The report is optional and local, and the command does not send anything. See [troubleshooting](docs/TROUBLESHOOTING.md).
 
-Playback and sharing depend on the installed Obsidian app, operating system, and device. A file that works on one device may not work on another. See [troubleshooting](docs/TROUBLESHOOTING.md) if a video preview or sharing option is unavailable.
+Playback and sharing depend on the installed Obsidian app, operating system, and device. A file that works on one device may not work on another. If a video preview or sharing option is unavailable, follow the troubleshooting guide above.
 
 ## Version history
 

@@ -47,21 +47,24 @@ interface Viewer {
 	drawRotationFreezeCanvas(source: ImageStub, width: number, height: number): ImageStub;
 	startMediaFitObserver(): void;
 	stopMediaFitObserver(): void;
+	startDesktopChromeObserver(header: ImageStub, filmstrip: ImageStub): void;
+	stopDesktopChromeObserver(): void;
 }
 
 function createViewer(mobile = true, supportsObserver = true) {
 	const observers: ResizeObserverStub[] = [];
 	class ResizeObserverStub {
 		target: ImageStub | null = null;
+		readonly targets: ImageStub[] = [];
 		disconnected = false;
-		constructor(private readonly callback: (entries: { target: ImageStub; contentRect: { width: number; height: number } }[]) => void) {
+		constructor(private readonly callback: (entries: { target: ImageStub; contentRect: { width: number; height: number }; borderBoxSize?: { blockSize: number }[] }[]) => void) {
 			observers.push(this);
 		}
-		observe(target: ImageStub): void { this.target = target; }
+		observe(target: ImageStub): void { this.target = target; this.targets.push(target); }
 		disconnect(): void { this.disconnected = true; }
-		deliver(width: number, height: number): void {
-			assert.ok(this.target);
-			this.callback([{ target: this.target, contentRect: { width, height } }]);
+		deliver(width: number, height: number, target = this.target, borderHeight?: number): void {
+			assert.ok(target);
+			this.callback([{ target, contentRect: { width, height }, borderBoxSize: borderHeight === undefined ? undefined : [{ blockSize: borderHeight }] }]);
 		}
 	}
 	const win = {
@@ -73,7 +76,7 @@ function createViewer(mobile = true, supportsObserver = true) {
 	const module = { exports: {} as { MediaLightbox: new (...args: unknown[]) => Viewer } };
 	runInNewContext(compiled.outputFiles[0]!.text, {
 		module, exports: module.exports,
-		require: () => ({ Modal: ModalStub, Platform: { isMobileApp: mobile } }),
+		require: () => ({ Modal: ModalStub, Platform: { isMobileApp: mobile, isDesktopApp: !mobile } }),
 	});
 	const items = [{ id: 'first', resourceUrl: 'original:first' }, { id: 'second', resourceUrl: 'original:second' }];
 	const viewer = new module.exports.MediaLightbox({}, items, 0, () => undefined, () => undefined, () => undefined);
@@ -203,5 +206,54 @@ void test('desktop and unsupported hosts never start a mobile fit observer', () 
 		viewer.mediaStageEl = new ImageStub();
 		viewer.startMediaFitObserver();
 		assert.equal(observers.length, 0);
+	}
+});
+
+void test('desktop observes actual header and filmstrip border sizes without reading synchronous positions', () => {
+	const { viewer, observers } = createViewer(false);
+	const header = new ImageStub();
+	const filmstrip = new ImageStub();
+	viewer.startDesktopChromeObserver(header, filmstrip);
+	assert.equal(observers.length, 1);
+	assert.deepEqual(observers[0]!.targets, [header, filmstrip]);
+	observers[0]!.deliver(760, 36, header);
+	observers[0]!.deliver(1000, 54, filmstrip);
+	assert.equal(viewer.contentEl.properties.get('--section-gallery-desktop-header-height'), '36px');
+	assert.equal(viewer.contentEl.properties.get('--section-gallery-desktop-filmstrip-height'), '54px');
+	observers[0]!.deliver(760, 44, header, 48);
+	assert.equal(viewer.contentEl.properties.get('--section-gallery-desktop-header-height'), '48px', 'Theme padding/borders count towards the actual header edge');
+	observers[0]!.deliver(0, 0, header);
+	observers[0]!.deliver(760, NaN, header);
+	assert.equal(viewer.contentEl.properties.get('--section-gallery-desktop-header-height'), '48px', 'Detached/invalid header entries cannot collapse its reserve');
+	observers[0]!.deliver(0, 0, filmstrip);
+	assert.equal(viewer.contentEl.properties.get('--section-gallery-desktop-filmstrip-height'), '0px', 'A deliberately hidden single-item filmstrip has no height');
+	observers[0]!.deliver(1000, 99, new ImageStub());
+	assert.equal(viewer.contentEl.properties.get('--section-gallery-desktop-filmstrip-height'), '0px', 'Unobserved targets never change chrome geometry');
+});
+
+void test('desktop chrome observer disconnects and rejects stale callbacks after replacement and close', () => {
+	const { viewer, observers } = createViewer(false);
+	const header = new ImageStub();
+	const filmstrip = new ImageStub();
+	viewer.startDesktopChromeObserver(header, filmstrip);
+	observers[0]!.deliver(760, 36, header);
+	viewer.startDesktopChromeObserver(header, filmstrip);
+	assert.equal(observers[0]!.disconnected, true);
+	observers[1]!.deliver(760, 48, header);
+	observers[0]!.deliver(760, 80, header);
+	assert.equal(viewer.contentEl.properties.get('--section-gallery-desktop-header-height'), '48px');
+	viewer.closeRequested = true;
+	observers[1]!.deliver(760, 80, header);
+	assert.equal(viewer.contentEl.properties.get('--section-gallery-desktop-header-height'), '48px');
+	viewer.stopDesktopChromeObserver();
+	assert.equal(observers[1]!.disconnected, true);
+});
+
+void test('mobile and hosts without ResizeObserver keep their existing geometry without a desktop chrome observer', () => {
+	for (const [mobile, supported] of [[true, true], [false, false]]) {
+		const { viewer, observers } = createViewer(mobile, supported);
+		viewer.startDesktopChromeObserver(new ImageStub(), new ImageStub());
+		assert.equal(observers.length, 0);
+		assert.equal(viewer.contentEl.properties.size, 0);
 	}
 });

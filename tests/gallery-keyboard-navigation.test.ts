@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
 	findGalleryControlFallbackIndex,
+	findGalleryToolbarControlIndex,
 	getSectionNavigationIntent,
 	isGalleryArrowKey,
 } from '../src/gallery-keyboard-navigation';
@@ -45,4 +46,16 @@ void test('fallback returns null at component edges and for stale indexes', () =
 	assert.equal(findGalleryControlFallbackIndex(groups, 1, 'ArrowDown'), null);
 	assert.equal(findGalleryControlFallbackIndex(groups, -1, 'ArrowRight'), null);
 	assert.equal(findGalleryControlFallbackIndex(groups, 3, 'ArrowLeft'), null);
+});
+
+void test('toolbar movement uses enabled control order and stops at the ends', () => {
+	// The view supplies only enabled controls, so collapse is skipped in flat
+	// mode without needing a separate positional slot or changing Tab order.
+	assert.equal(findGalleryToolbarControlIndex(3, 0, 'ArrowRight'), 1);
+	assert.equal(findGalleryToolbarControlIndex(3, 1, 'ArrowLeft'), 0);
+	assert.equal(findGalleryToolbarControlIndex(3, 2, 'ArrowRight'), null);
+	assert.equal(findGalleryToolbarControlIndex(3, 0, 'ArrowLeft'), null);
+	assert.equal(findGalleryToolbarControlIndex(3, 1, 'ArrowDown'), null);
+	assert.equal(findGalleryToolbarControlIndex(0, 0, 'ArrowRight'), null);
+	assert.equal(findGalleryToolbarControlIndex(3, -1, 'ArrowRight'), null);
 });

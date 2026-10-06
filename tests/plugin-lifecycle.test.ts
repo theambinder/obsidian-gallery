@@ -13,8 +13,10 @@ interface TestPlugin {
 	isLayoutReady: boolean;
 	getTileScale(): number;
 	getLayoutMode(): string;
+	getShowSections(): boolean;
 	setTileScale(value: number): Promise<void>;
 	setLayoutMode(value: 'square' | 'aspect'): Promise<void>;
+	setShowSections(value: boolean): Promise<void>;
 }
 
 function deferred<T>() {
@@ -56,6 +58,7 @@ async function harness(options: {
 		saved: [] as Record<string, unknown>[],
 		scales: [] as number[],
 		layouts: [] as string[],
+		sectionVisibility: [] as boolean[],
 	};
 	let nextTimer = 0;
 	let viewFactory!: (leaf: object) => object;
@@ -76,6 +79,7 @@ async function harness(options: {
 			focusGallery: () => { calls.focus += 1; },
 			setTileScale: (scale: number) => { calls.scales.push(scale); },
 			setLayoutMode: (mode: string) => { calls.layouts.push(mode); },
+			setShowSections: (show: boolean) => { calls.sectionVisibility.push(show); },
 		});
 	}
 	const app = {
@@ -224,13 +228,27 @@ void test('tile scale loads with the saved layout and applies live to existing v
 	await h.plugin.setTileScale(123);
 	assert.equal(h.plugin.getTileScale(), 120);
 	assert.deepEqual(h.calls.scales, [120]);
-	assert.deepEqual(h.calls.saved, [{ layoutMode: 'aspect', tileScale: 120, custom: true, version: 1 }]);
+	assert.deepEqual(h.calls.saved, [{ layoutMode: 'aspect', tileScale: 120, showSections: true, custom: true, version: 1 }]);
 	await h.plugin.setLayoutMode('square');
 	assert.deepEqual(h.calls.layouts, ['square']);
-	assert.deepEqual(h.calls.saved.at(-1), { layoutMode: 'square', tileScale: 120, custom: true, version: 1 });
+	assert.deepEqual(h.calls.saved.at(-1), { layoutMode: 'square', tileScale: 120, showSections: true, custom: true, version: 1 });
 });
 
-void test('concurrent scale and layout updates serialize persistence without stale overwrites', async () => {
+void test('section visibility loads and applies live without altering layout or tile scale', async () => {
+	const h = await harness({ data: Promise.resolve({ layoutMode: 'aspect', tileScale: 30, showSections: false }) });
+	await h.plugin.onload();
+	h.makeExistingView();
+	assert.equal(h.plugin.getShowSections(), false);
+	assert.equal(h.plugin.getTileScale(), 30);
+	await h.plugin.setShowSections(true);
+	assert.equal(h.plugin.getShowSections(), true);
+	assert.deepEqual(h.calls.sectionVisibility, [true]);
+	assert.deepEqual(h.calls.saved.at(-1), { layoutMode: 'aspect', tileScale: 30, showSections: true, version: 1 });
+	assert.deepEqual(h.calls.scales, []);
+	assert.deepEqual(h.calls.layouts, []);
+});
+
+void test('concurrent scale, layout and section updates serialize persistence without stale overwrites', async () => {
 	const firstSave = deferred<void>();
 	let writes = 0;
 	const h = await harness({ saveData: () => ++writes === 1 ? firstSave.promise : Promise.resolve() });
@@ -238,16 +256,29 @@ void test('concurrent scale and layout updates serialize persistence without sta
 	const scaleChange = h.plugin.setTileScale(150);
 	const layoutChange = h.plugin.setLayoutMode('aspect');
 	const newerScaleChange = h.plugin.setTileScale(180);
+	const sectionChange = h.plugin.setShowSections(false);
 	await Promise.resolve();
 	await Promise.resolve();
 	assert.equal(h.calls.saved.length, 1, 'only one write may be active');
 	firstSave.resolve();
-	await Promise.all([scaleChange, layoutChange, newerScaleChange]);
+	await Promise.all([scaleChange, layoutChange, newerScaleChange, sectionChange]);
 	assert.deepEqual(h.calls.saved, [
-		{ layoutMode: 'square', tileScale: 150, version: 1 },
-		{ layoutMode: 'aspect', tileScale: 150, version: 1 },
-		{ layoutMode: 'aspect', tileScale: 180, version: 1 },
+		{ layoutMode: 'square', tileScale: 150, showSections: true, version: 1 },
+		{ layoutMode: 'aspect', tileScale: 150, showSections: true, version: 1 },
+		{ layoutMode: 'aspect', tileScale: 180, showSections: true, version: 1 },
+		{ layoutMode: 'aspect', tileScale: 180, showSections: false, version: 1 },
 	]);
+});
+
+void test('failed section visibility writes can be retried without reverting the live selection', async () => {
+	let writes = 0;
+	const h = await harness({ saveData: () => ++writes === 1 ? Promise.reject(new Error('Storage unavailable')) : Promise.resolve() });
+	await h.plugin.onload();
+	await assert.rejects(h.plugin.setShowSections(false), /Storage unavailable/);
+	assert.equal(h.plugin.getShowSections(), false);
+	await h.plugin.setShowSections(false);
+	assert.equal(h.calls.saved.length, 2);
+	assert.equal(h.calls.saved.at(-1)?.showSections, false);
 });
 
 void test('failed settings write can be retried with the same selection', async () => {
@@ -266,8 +297,10 @@ void test('disabled plugin does not accept or persist new settings changes', asy
 	h.plugin.onunload();
 	await h.plugin.setTileScale(180);
 	await h.plugin.setLayoutMode('aspect');
+	await h.plugin.setShowSections(false);
 	assert.equal(h.plugin.getTileScale(), 100);
 	assert.equal(h.plugin.getLayoutMode(), 'square');
+	assert.equal(h.plugin.getShowSections(), true);
 	assert.equal(h.calls.saved.length, 0);
 });
 

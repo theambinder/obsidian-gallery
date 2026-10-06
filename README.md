@@ -6,13 +6,13 @@ Browse images and videos from your active note in a searchable sidebar and a ful
 
 - Browse local images and videos from the active note.
 - Search filenames and section headings, highlight matches, and filter images or videos. Search and filters also apply to the viewer.
-- Browse collapsible, nested sections with media counts and a pinned heading that keeps your place while scrolling.
-- Adjust tile size from 60–180% and switch between cropped thumbnails and whole images.
+- Browse collapsible, nested sections with media counts and a pinned heading, or hide sections for a continuous media grid.
+- Adjust tile size from 30–180% and switch between cropped thumbnails and whole images.
 - Open media in a full-window viewer with swipe navigation, arrow keys, and a thumbnail strip.
 - Zoom images, move around an enlarged image, and hide or show the viewer controls.
 - View file information, including video duration and frame rate when available.
 - Return to the original embed, share supported files, and use desktop context menus to copy or open media.
-- Navigate section headings and media tiles with the keyboard, with support for light and dark themes.
+- Navigate the toolbar, section headings, and media tiles with the keyboard, with support for light and dark themes.
 
 ## Performance
 
@@ -36,13 +36,14 @@ Remote URLs, media paths in properties, raw HTML media, and media inside embedde
 2. Select the images icon in the ribbon, or run **Gallery: Open media** from the command palette.
 3. Use the toolbar to search filenames and headings, filter images or videos, collapse or expand all sections, and change how images fit inside tiles.
 4. Select a heading to collapse only that heading and everything nested inside it.
-5. For keyboard navigation, run **Gallery: Focus media** or assign it a keyboard shortcut. Use `Up` and `Down` to move through headings and grids. On a heading, use `Right` to expand or enter it and `Left` to collapse it or return to its parent. Press `Enter` on a tile to open it.
+5. For keyboard navigation, run **Gallery: Focus media** or assign it a keyboard shortcut. Use `Up` and `Down` to move through headings and grids. From the first heading or tile, press `Up` to reach the toolbar. Use `Left` and `Right` to move between toolbar buttons, and `Down` to return to the search field or results. On a heading, use `Right` to expand or enter it and `Left` to collapse it or return to its parent. Press `Enter` on a tile to open it.
 6. Select a tile to open the full-window viewer.
 7. In the viewer, select an image or the empty area around it to hide or show the controls.
 8. Swipe up, press `Up`, or select the information button to view the vault path, file size, dimensions, type, and modification time. Swipe down or press `Down` to hide the information panel. Another downward action closes the viewer.
 9. Drag or flick the thumbnail strip to move quickly through nearby media. The item nearest the center becomes active and snaps into place when scrolling stops.
 10. Where supported, select the share button to open the operating system's sharing options for the active file.
 11. Open **Settings → Gallery → Tile scale** to adjust thumbnail size. At the same panel width, a larger scale shows fewer tiles; no fixed column count is stored.
+12. Disable **Settings → Gallery → Show sections** to display one continuous grid. Search still matches section headings, and the viewer keeps section labels. Re-enabling the setting restores your collapsed sections.
 
 ### Desktop
 

@@ -21,6 +21,23 @@ export function isGalleryArrowKey(key: string): key is GalleryArrowKey {
 	);
 }
 
+/** Toolbar arrows stop at the ends, leaving native Tab order unchanged. */
+export function findGalleryToolbarControlIndex(
+	controlCount: number,
+	currentIndex: number,
+	direction: GalleryArrowKey,
+): number | null {
+	if (
+		currentIndex < 0 ||
+		currentIndex >= controlCount ||
+		(direction !== 'ArrowLeft' && direction !== 'ArrowRight')
+	) {
+		return null;
+	}
+	const nextIndex = currentIndex + (direction === 'ArrowRight' ? 1 : -1);
+	return nextIndex >= 0 && nextIndex < controlCount ? nextIndex : null;
+}
+
 export function getSectionNavigationIntent(
 	direction: GalleryArrowKey,
 	isOpen: boolean,

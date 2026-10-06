@@ -196,6 +196,10 @@ export default class SectionGalleryPlugin extends Plugin {
 		return this.gallerySettings.tileScale;
 	}
 
+	getShowSections(): boolean {
+		return this.gallerySettings.showSections;
+	}
+
 	showDiagnostics(): void {
 		if (!this.isUnloaded) {
 			const modal = openGalleryDiagnostics(this.app, this.manifest.version, (closed) => {
@@ -228,9 +232,20 @@ export default class SectionGalleryPlugin extends Plugin {
 		await this.saveSettings();
 	}
 
+	async setShowSections(value: boolean): Promise<void> {
+		if (this.isUnloaded) {
+			return;
+		}
+		this.gallerySettings.showSections = value;
+		for (const view of this.getGalleryViews()) {
+			view.setShowSections(value);
+		}
+		await this.saveSettings();
+	}
+
 	private saveSettings(): Promise<void> {
 		const snapshot = { ...this.gallerySettings };
-		// Layout changes and live slider updates share the same serial writer;
+		// Layout, section visibility and live slider updates share a serial writer;
 		// an older, slower write must never overwrite the latest selection.
 		this.settingsSave = this.settingsSave.catch(() => undefined).then(() => {
 			return this.saveData(snapshot);

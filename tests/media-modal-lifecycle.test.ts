@@ -95,6 +95,7 @@ interface ViewerHarness {
 	handleStagePointerCancel(event: PointerEvent): void;
 	mediaEl: ImageStub | VideoStub | null;
 	mediaFitObserver: { disconnect(): void } | null;
+	desktopChromeObserver: { disconnect(): void } | null;
 	panX: number;
 	panY: number;
 	pinchGesture: { startDistance: number; startScale: number } | null;
@@ -426,7 +427,9 @@ void test('video filmstrip renders decoder-backed image stills instead of native
 void test('delayed phone close immediately cancels swipe and inertia work and rejects late publication', () => {
 	const { viewer, timers, frames } = createViewer();
 	let fitDisconnected = false;
+	let chromeDisconnected = false;
 	viewer.mediaFitObserver = { disconnect(): void { fitDisconnected = true; } };
+	viewer.desktopChromeObserver = { disconnect(): void { chromeDisconnected = true; } };
 	viewer.stagePageSettle = {
 		commit: true, filmstripSync: null, generation: 1,
 		originIndex: 0, source: 'pointer', targetIndex: 1,
@@ -438,6 +441,8 @@ void test('delayed phone close immediately cancels swipe and inertia work and re
 	viewer.close();
 	assert.equal(fitDisconnected, true, 'Fit observer is disconnected before native onClose');
 	assert.equal(viewer.mediaFitObserver, null);
+	assert.equal(chromeDisconnected, true, 'Desktop chrome observer shares immediate close cleanup');
+	assert.equal(viewer.desktopChromeObserver, null);
 	assert.equal(timers.size, 0, 'Swipe timer is cancelled before native onClose');
 	assert.equal(frames.size, 0, 'Inertia RAF is cancelled before native onClose');
 	assert.equal(viewer.stagePageSettle, null);

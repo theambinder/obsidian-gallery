@@ -1,13 +1,14 @@
 import type { GalleryLayoutMode } from './types';
 
 export const DEFAULT_TILE_SCALE = 100;
-export const MIN_TILE_SCALE = 60;
+export const MIN_TILE_SCALE = 30;
 export const MAX_TILE_SCALE = 180;
 export const TILE_SCALE_STEP = 10;
 
 export interface GallerySettings extends Record<string, unknown> {
 	layoutMode: GalleryLayoutMode;
 	tileScale: number;
+	showSections: boolean;
 	version: 1;
 }
 
@@ -29,6 +30,7 @@ export function normalizeGallerySettings(value: unknown): GallerySettings {
 		...saved,
 		layoutMode: saved.layoutMode === 'aspect' ? 'aspect' : 'square',
 		tileScale: normalizeTileScale(saved.tileScale),
+		showSections: typeof saved.showSections === 'boolean' ? saved.showSections : true,
 		version: 1,
 	};
 }

@@ -4,6 +4,9 @@ import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import { build } from 'esbuild';
 import { TILE_RENDER_BATCH_SIZE } from '../src/constants';
+import { buildMediaIndex, buildMediaSectionTree } from '../src/media-index';
+import { buildVisibleMediaProjection } from '../src/gallery-search';
+import type { MediaSectionTree } from '../src/types';
 import type { VideoTileMetadata } from '../src/video-metadata';
 
 interface TileTask {
@@ -35,9 +38,25 @@ interface TestGalleryView {
 		refreshVisibility(): void;
 		disconnect(): void;
 		observe?(element: object, item: object, visibility?: undefined, update?: (metadata: VideoTileMetadata) => void): void;
+		unobserve?(element: object): void;
 	} | null;
 	renderRevision: number;
 	currentTree: object | null;
+	items: object[];
+	mediaTrackingKeys: string[];
+	showSections: boolean;
+	searchOpen: boolean;
+	searchQuery: string;
+	mediaKindFilter: 'image' | 'video' | null;
+	visibleMediaIndices: number[];
+	searchButton: RenderElement | null;
+	sectionToggleButton: RenderElement | null;
+	filterButton: RenderElement | null;
+	layoutButton: RenderElement | null;
+	searchComponent: { inputEl: RenderElement } | null;
+	countEl: RenderElement | null;
+	searchStatusEl: RenderElement | null;
+	displayedCollapsed: Set<string> | null;
 	tilesByTrackingKey: Map<string, TestTile>;
 	cancelPendingRender(): void;
 	disposeSectionBody(body: object): void;
@@ -46,6 +65,7 @@ interface TestGalleryView {
 	recordLastViewedMedia(note: string, key: string): void;
 	renderTile(grid: TileTask['grid'], item: object, index: number): void;
 	setTileScale(value: number): void;
+	setShowSections(show: boolean): void;
 	refreshVisibleMedia(): void;
 	refresh(): void;
 	renderEmptyState(message: string): void;
@@ -53,8 +73,20 @@ interface TestGalleryView {
 	updateKeyboardFocusState(): void;
 	scheduleKeyboardFocusState(): void;
 	prepareRender(signature: string, media: object[], keys: string[], tree: object): number;
-	rerenderCurrentProjection(): void;
-	renderCurrentProjection(): void;
+	rerenderCurrentProjection(reuseTiles?: boolean): void;
+	renderCurrentProjection(revision?: number, collapsed?: Set<string>): void;
+	renderHierarchy(tree: MediaSectionTree, collapsed: Set<string>, revision: number): void;
+	toggleAllDisplayedSections(): void;
+	handleToolbarKeydown(event: TestKeyEvent): void;
+	handleSearchKeydown(event: TestKeyEvent): void;
+	handleSearchQueryChange(value: string): void;
+	handleGalleryKeydown(event: TestKeyEvent): void;
+	showMediaFilterMenu(event: { detail: number }): void;
+	getVisibleGalleryControls(): RenderElement[];
+	findAdjacentTile(): RenderElement | null;
+	findAdjacentGalleryControl(): RenderElement | null;
+	getSectionHeaderFromEvent(): RenderElement | null;
+	getTileFromEvent(): RenderElement | null;
 	getCurrentCollapsedState(): Set<string> | null;
 	onOpen(): Promise<void>;
 	onClose(): Promise<void>;
@@ -72,7 +104,7 @@ const viewConstructor = build({
 	format: 'cjs',
 	platform: 'node',
 	write: false,
-}).then((result) => (notices: string[]) => {
+}).then((result) => (notices: string[], menuCalls: MenuCall[]) => {
 	const module = { exports: {} };
 	const nodeRequire = createRequire(import.meta.url);
 	runInNewContext(result.outputFiles[0]!.text, {
@@ -97,10 +129,24 @@ const viewConstructor = build({
 				},
 				Platform: { isMobile: false },
 				Notice: class { constructor(message: string) { notices.push(message); } },
+				setIcon(): void {},
+				Menu: {
+					forEvent: () => ({
+						addItem(callback: (item: object) => void): void {
+							const item = { setTitle(): object { return this; }, setIcon(): object { return this; }, setChecked(): object { return this; }, onClick(): object { return this; } };
+							callback(item);
+						},
+						addSeparator(): void {},
+						showAtPosition(position: { x: number; y: number }, document: object): void { menuCalls.push({ kind: 'position', position, document }); },
+						showAtMouseEvent(event: object): void { menuCalls.push({ kind: 'pointer', event }); },
+					}),
+				},
 			};
 		},
 		Element: class {},
 		HTMLDetailsElement: class {},
+		HTMLImageElement: class {},
+		HTMLVideoElement: class {},
 	});
 	return (module.exports as {
 		SectionGalleryView: new (leaf: object, host: object) => TestGalleryView;
@@ -114,6 +160,7 @@ async function createView(host: object = {}): Promise<{
 	flushTimers: () => void;
 	pendingTimers: () => number;
 	notices: string[];
+	menuCalls: MenuCall[];
 	css: Record<string, string>;
 	classes: Set<string>;
 	setFocusVisible(value: boolean): void;
@@ -124,7 +171,8 @@ async function createView(host: object = {}): Promise<{
 	const frames = new Map<number, FrameRequestCallback>();
 	const timers = new Map<number, () => void>();
 	const notices: string[] = [];
-	const View = (await viewConstructor)(notices);
+	const menuCalls: MenuCall[] = [];
+	const View = (await viewConstructor)(notices, menuCalls);
 	const css: Record<string, string> = {};
 	const classes = new Set<string>();
 	let focusVisible = false;
@@ -163,7 +211,7 @@ async function createView(host: object = {}): Promise<{
 				},
 			},
 		},
-	}, host);
+	}, { getShowSections: () => true, ...host });
 	return {
 		view,
 		css,
@@ -171,6 +219,7 @@ async function createView(host: object = {}): Promise<{
 		setFocusVisible: (value: boolean): void => { focusVisible = value; },
 		focusQueries: () => focusQueries,
 		notices,
+		menuCalls,
 		flushFrame(): void {
 			const callbacks = Array.from(frames.values());
 			frames.clear();
@@ -195,27 +244,277 @@ function tileTask(index: number, isConnected = true): TileTask {
 class RenderElement {
 	readonly isConnected = true;
 	readonly classes = new Set<string>();
-	readonly dataset = {};
+	readonly dataset: Record<string, string> = {};
 	readonly children: RenderElement[] = [];
+	readonly attributes = new Map<string, string>();
+	readonly ownerDocument = {};
+	parent: RenderElement | null = null;
+	disabled = false;
+	focused = false;
+	tabIndex = 0;
 	hidden = false;
 	text = '';
+	constructor(readonly tag = 'div') {}
 	addClass(name: string): void { this.classes.add(name); }
 	removeClass(name: string): void { this.classes.delete(name); }
 	toggleClass(name: string, enabled: boolean): void { if (enabled) this.classes.add(name); else this.classes.delete(name); }
-	setAttr(): void {}
+	setAttr(name: string, value: string): void { this.attributes.set(name, value); }
+	removeAttribute(name: string): void { this.attributes.delete(name); }
+	toggleAttribute(name: string, enabled: boolean): void { if (enabled) this.attributes.set(name, ''); else this.attributes.delete(name); if (name === 'disabled') this.disabled = enabled; }
 	setCssProps(): void {}
 	setText(value: string): void { this.text = value; }
-	private createNode(options: { cls?: string; text?: string }): RenderElement {
-		const child = new RenderElement();
-		if (options.cls) child.addClass(options.cls);
-		if (options.text) child.text = options.text;
+	appendText(value: string): void { this.text += value; }
+	getClientRects(): object[] { return this.hidden ? [] : [{}]; }
+	getBoundingClientRect(): { left: number; bottom: number } { return { left: 25, bottom: 45 }; }
+	focus(): void { this.focused = true; }
+	select(): void {}
+	scrollIntoView(): void {}
+	instanceOf(): boolean { return true; }
+	empty(): void { for (const child of this.children) child.parent = null; this.children.length = 0; }
+	contains(element: RenderElement): boolean { return element === this || this.children.some(child => child.contains(element)); }
+	querySelectorAll(selector: string): RenderElement[] {
+		const all = this.children.flatMap(child => [child, ...child.querySelectorAll('*')]);
+		return selector === '*' ? all : all.filter(child => selector.startsWith('.') ? child.classes.has(selector.slice(1)) : selector.split(', ').includes(child.tag));
+	}
+	appendChild(child: RenderElement): void {
+		if (child.parent) {
+			const index = child.parent.children.indexOf(child);
+			if (index !== -1) child.parent.children.splice(index, 1);
+		}
 		this.children.push(child);
+		child.parent = this;
+	}
+	private createNode(tag: string, options: { cls?: string | string[]; text?: string }): RenderElement {
+		const child = new RenderElement(tag);
+		if (options.cls) for (const name of Array.isArray(options.cls) ? options.cls : options.cls.split(' ')) child.addClass(name);
+		if (options.text) child.text = options.text;
+		this.appendChild(child);
 		return child;
 	}
-	createEl(_tag: string, options: { cls?: string; text?: string } = {}): RenderElement { return this.createNode(options); }
-	createSpan(options: { cls?: string; text?: string } = {}): RenderElement { return this.createNode(options); }
-	createDiv(options: { cls?: string } = {}): RenderElement { return this.createNode(options); }
+	createEl(tag: string, options: { cls?: string | string[]; text?: string } = {}): RenderElement { return this.createNode(tag, options); }
+	createSpan(options: { cls?: string; text?: string } = {}): RenderElement { return this.createNode('span', options); }
+	createDiv(options: { cls?: string } = {}): RenderElement { return this.createNode('div', options); }
 }
+
+interface TestKeyEvent {
+	key: string;
+	target: object;
+	defaultPrevented: boolean;
+	isComposing?: boolean;
+	shiftKey?: boolean;
+	preventDefault(): void;
+	stopPropagation(): void;
+}
+
+interface MenuCall {
+	kind: 'pointer' | 'position';
+	position?: { x: number; y: number };
+	document?: object;
+	event?: object;
+}
+
+function keyEvent(key: string, target: object, options: Partial<TestKeyEvent> = {}): TestKeyEvent {
+	return { key, target, defaultPrevented: false, preventDefault(): void { this.defaultPrevented = true; }, stopPropagation(): void {}, ...options };
+}
+
+function installRenderedContent(view: TestGalleryView): RenderElement {
+	const previous = view.contentEl as { win: object };
+	const content = Object.assign(new RenderElement(), { win: previous.win });
+	view.contentEl = content;
+	return content;
+}
+
+function mediaFixture(): { items: object[]; tree: MediaSectionTree } {
+	const names = ['first.jpg', 'movie.mp4', 'last.jpg'];
+	const media = buildMediaIndex(
+		names.map((link, index) => ({ link, position: { offset: index * 10 + 10, line: index, column: 0 } })),
+		[
+			{ heading: 'Alpha', level: 1, position: { offset: 0 } },
+			{ heading: 'Beta', level: 1, position: { offset: 25 } },
+		],
+		(link) => ({ name: link, path: link, extension: link.split('.').at(-1)!, stat: { mtime: 1, size: 2 } }),
+		'No heading',
+	);
+	return { items: media, tree: buildMediaSectionTree(media, 'No heading') };
+}
+
+void test('flat tiles ignore saved collapse choices but retain content order, heading search, and viewer filtering', async () => {
+	const h = await createView();
+	const content = installRenderedContent(h.view);
+	const fixture = mediaFixture();
+	const collapsed = new Set([fixture.tree.children[0]!.structuralKey]);
+	h.view.items = fixture.items;
+	h.view.currentTree = fixture.tree;
+	h.view.showSections = false;
+	h.view.sectionToggleButton = new RenderElement('button');
+	h.view.countEl = new RenderElement('span');
+	h.view.lazyLoader = { refreshVisibility(): void {}, disconnect(): void {}, observe(): void {}, unobserve(): void {} };
+	h.view.renderCurrentProjection(h.view.renderRevision, collapsed);
+	h.flushFrame();
+	assert.equal(content.children.length, 1);
+	assert.equal(content.children[0]!.classes.has('section-gallery-grid'), true);
+	assert.equal(content.querySelectorAll('.section-gallery-section').length, 0);
+	assert.deepEqual(content.querySelectorAll('.section-gallery-tile').map(tile => tile.dataset.mediaIndex), ['0', '1', '2']);
+	assert.equal(h.view.sectionToggleButton.disabled, true);
+	h.view.toggleAllDisplayedSections();
+	assert.deepEqual(Array.from(collapsed), [fixture.tree.children[0]!.structuralKey]);
+
+	h.view.searchOpen = true;
+	h.view.searchQuery = 'Alpha';
+	h.view.mediaKindFilter = 'video';
+	h.view.getCurrentCollapsedState = () => collapsed;
+	h.view.rerenderCurrentProjection();
+	h.flushFrame();
+	assert.deepEqual(Array.from(h.view.visibleMediaIndices), [1], 'section titles still include matching media before type filtering');
+	assert.equal(h.view.countEl.text, '1 / 3');
+	assert.deepEqual(content.querySelectorAll('.section-gallery-tile').map(tile => tile.dataset.mediaIndex), ['1']);
+	const projection = buildVisibleMediaProjection(h.view.items, h.view.visibleMediaIndices, 1);
+	assert.deepEqual(projection?.originalIndices, [1]);
+	assert.equal(projection?.items[0], fixture.items[1]);
+	assert.equal(projection?.initialIndex, 0);
+});
+
+void test('show sections switches presentation live without rescanning or reloading existing thumbnails and restores collapse choices', async () => {
+	const h = await createView();
+	const content = installRenderedContent(h.view);
+	const fixture = mediaFixture();
+	const collapsed = new Set([fixture.tree.children[0]!.structuralKey]);
+	h.view.items = fixture.items;
+	h.view.currentTree = fixture.tree;
+	h.view.showSections = false;
+	h.view.getCurrentCollapsedState = () => collapsed;
+	h.view.currentNotePath = 'gallery.md';
+	h.view.mediaTrackingKeys = ['first', 'second', 'third'];
+	let observed = 0;
+	let unobserved = 0;
+	h.view.lazyLoader = {
+		refreshVisibility(): void {}, disconnect(): void {},
+		observe(): void { observed += 1; }, unobserve(): void { unobserved += 1; },
+	};
+	h.view.renderCurrentProjection(h.view.renderRevision, collapsed);
+	h.flushFrame();
+	const firstTiles = content.querySelectorAll('.section-gallery-tile');
+	h.view.recordLastViewedMedia('gallery.md', 'third');
+	assert.equal(observed, 3);
+	let renderedHierarchy: Set<string> | null = null;
+	h.view.renderHierarchy = (_tree, state, revision) => {
+		renderedHierarchy = state;
+		const grid = content.createDiv({ cls: 'section-gallery-grid' });
+		h.view.enqueueTileTasks([{ grid, index: 2, item: fixture.items[2]! }], revision);
+	};
+	h.view.refresh = () => { assert.fail('changing section visibility must not rescan the note'); };
+	h.view.setShowSections(true);
+	h.flushFrame();
+	assert.equal(renderedHierarchy, collapsed);
+	assert.equal(content.querySelectorAll('.section-gallery-tile')[0], firstTiles[2], 'keep the same loaded media node when moving between presentations');
+	assert.equal(observed, 3);
+	assert.equal(unobserved, 2, 'only the previously visible media now hidden by saved collapse are released');
+	assert.equal(h.view.lastViewedTileEl, firstTiles[2]);
+	assert.equal(content.querySelectorAll('.section-gallery-tile').filter(tile => tile.classes.has('is-last-viewed')).length, 1);
+	assert.deepEqual(Array.from(collapsed), [fixture.tree.children[0]!.structuralKey]);
+	const revision = h.view.renderRevision;
+	h.view.setShowSections(true);
+	assert.equal(h.view.renderRevision, revision, 'an unchanged setting does not rebuild the DOM');
+});
+
+void test('keyboard filter activation anchors the menu at its toolbar button while pointer clicks retain native placement', async () => {
+	const h = await createView();
+	const button = new RenderElement('button');
+	h.view.filterButton = button;
+	h.view.showMediaFilterMenu({ detail: 0 });
+	assert.equal(h.menuCalls[0]?.kind, 'position');
+	assert.equal(h.menuCalls[0]?.position?.x, 25);
+	assert.equal(h.menuCalls[0]?.position?.y, 45);
+	assert.equal(h.menuCalls[0]?.document, button.ownerDocument);
+	const event = { detail: 1 };
+	h.view.showMediaFilterMenu(event);
+	assert.equal(h.menuCalls[1]?.kind, 'pointer');
+	assert.equal(h.menuCalls[1]?.event, event);
+});
+
+void test('section visibility changed before a pending search render does not reuse stale filename highlights', async () => {
+	const h = await createView();
+	const content = installRenderedContent(h.view);
+	const fixture = mediaFixture();
+	const collapsed = new Set<string>();
+	h.view.items = fixture.items;
+	h.view.currentTree = fixture.tree;
+	h.view.showSections = false;
+	h.view.getCurrentCollapsedState = () => collapsed;
+	let observed = 0;
+	h.view.lazyLoader = { refreshVisibility(): void {}, disconnect(): void {}, observe(): void { observed += 1; }, unobserve(): void {} };
+	h.view.renderCurrentProjection(h.view.renderRevision, collapsed);
+	h.flushFrame();
+	const previousMovieTile = content.querySelectorAll('.section-gallery-tile')[1];
+	h.view.renderHierarchy = (_tree, _state, revision) => {
+		const grid = content.createDiv({ cls: 'section-gallery-grid' });
+		h.view.enqueueTileTasks([{ grid, index: 1, item: fixture.items[1]! }], revision);
+	};
+	h.view.searchOpen = true;
+	h.view.handleSearchQueryChange('movie');
+	h.view.setShowSections(true);
+	h.flushFrame();
+	const movieTile = content.querySelectorAll('.section-gallery-tile')[0]!;
+	assert.notEqual(movieTile, previousMovieTile);
+	assert.equal(movieTile.classes.has('is-search-match'), true);
+	assert.equal(movieTile.querySelectorAll('.section-gallery-search-filename').length, 1);
+	assert.equal(observed, 4, 'new matching labels require rebuilding the changed projection');
+});
+
+void test('desktop arrows connect results, enabled toolbar buttons, and the search field without hijacking caret or Tab keys', async () => {
+	const h = await createView();
+	const controls = Array.from({ length: 4 }, () => new RenderElement('button'));
+	const search = controls[0]!;
+	const collapse = controls[1]!;
+	const filter = controls[2]!;
+	const layout = controls[3]!;
+	h.view.searchButton = search;
+	h.view.sectionToggleButton = collapse;
+	h.view.filterButton = filter;
+	h.view.layoutButton = layout;
+	const firstTile = new RenderElement('button');
+	const input = new RenderElement('input');
+	h.view.getVisibleGalleryControls = () => [firstTile];
+	h.view.searchComponent = { inputEl: input };
+	h.view.getSectionHeaderFromEvent = () => null;
+	h.view.getTileFromEvent = () => firstTile;
+	h.view.findAdjacentTile = () => null;
+	h.view.findAdjacentGalleryControl = () => null;
+	const upward = keyEvent('ArrowUp', firstTile);
+	h.view.handleGalleryKeydown(upward);
+	assert.equal(search.focused, true);
+	assert.equal(upward.defaultPrevented, true);
+	collapse.disabled = true;
+	h.view.handleToolbarKeydown(keyEvent('ArrowRight', search));
+	assert.equal(filter.focused, true, 'skip the disabled collapse control in flat mode');
+	h.view.handleToolbarKeydown(keyEvent('ArrowRight', filter));
+	assert.equal(layout.focused, true);
+	layout.focused = false;
+	const edge = keyEvent('ArrowRight', layout);
+	h.view.handleToolbarKeydown(edge);
+	assert.equal(edge.defaultPrevented, false, 'no wraparound at toolbar edges');
+	h.view.handleToolbarKeydown(keyEvent('ArrowDown', search));
+	assert.equal(firstTile.focused, true);
+	h.view.searchOpen = true;
+	h.view.handleToolbarKeydown(keyEvent('ArrowDown', filter));
+	assert.equal(input.focused, true);
+	search.focused = false;
+	h.view.handleSearchKeydown(keyEvent('ArrowUp', input));
+	assert.equal(search.focused, true);
+	firstTile.focused = false;
+	h.view.handleSearchKeydown(keyEvent('ArrowDown', input));
+	assert.equal(firstTile.focused, true);
+	for (const key of ['ArrowLeft', 'ArrowRight', 'Tab']) {
+		const event = keyEvent(key, input);
+		h.view.handleSearchKeydown(event);
+		assert.equal(event.defaultPrevented, false, `${key} retains native text-field behavior`);
+	}
+	for (const key of ['Tab', 'ArrowLeft', 'ArrowDown']) {
+		const event = keyEvent(key, filter, { shiftKey: true });
+		h.view.handleToolbarKeydown(event);
+		assert.equal(event.defaultPrevented, false, `${key} with Shift retains native behavior`);
+	}
+});
 
 void test('pending note metadata uses plain-language loading copy and deduplicates refreshes', async () => {
 	const note = { path: 'pending.md' };

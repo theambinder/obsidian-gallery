@@ -18,6 +18,7 @@ import { LazyMediaLoader } from './lazy-media-loader';
 import { showMediaContextMenu } from './media-context-menu';
 import {
 	findGalleryControlFallbackIndex,
+	findGalleryToolbarControlIndex,
 	getSectionNavigationIntent,
 	isGalleryArrowKey,
 	type GalleryArrowKey,
@@ -61,6 +62,7 @@ export interface GalleryViewHost {
 	getActiveNote(): TFile | null;
 	getLayoutMode(): GalleryLayoutMode;
 	getTileScale(): number;
+	getShowSections(): boolean;
 	openLightbox(
 		media: readonly GalleryMedia[],
 		initialIndex: number,
@@ -102,6 +104,7 @@ export class SectionGalleryView extends ItemView {
 	private renderFrame: number | null = null;
 	private renderRevision = 0;
 	private renderSignature: string | null = null;
+	private readonly reusableTilesByIndex = new Map<number, HTMLButtonElement>();
 	private regionLabelEl: HTMLElement | null = null;
 	private resizeObserver: ResizeObserver | null = null;
 	private readonly searchCollapsed = new Set<string>();
@@ -114,6 +117,7 @@ export class SectionGalleryView extends ItemView {
 	private searchRowEl: HTMLElement | null = null;
 	private searchStatusEl: HTMLElement | null = null;
 	private sectionToggleButton: HTMLButtonElement | null = null;
+	private showSections = true;
 	private summaryEl: HTMLElement | null = null;
 	private readonly tilesByTrackingKey = new Map<
 		string,
@@ -158,6 +162,7 @@ export class SectionGalleryView extends ItemView {
 		this.contentEl.before(this.regionLabelEl);
 		this.contentEl.setAttr('aria-labelledby', this.regionLabelEl.id);
 		this.layoutMode = this.host.getLayoutMode();
+		this.showSections = this.host.getShowSections();
 		this.setTileScale(this.host.getTileScale());
 		this.addAction('refresh-cw', 'Refresh gallery', () => this.refresh(true));
 		this.registerDomEvent(this.contentEl, 'click', (event) => {
@@ -332,6 +337,16 @@ export class SectionGalleryView extends ItemView {
 			'--section-gallery-tile-scale': String(normalizeTileScale(value) / 100),
 		});
 		this.lazyLoader?.refreshVisibility();
+	}
+
+	setShowSections(show: boolean): void {
+		if (this.showSections === show) {
+			return;
+		}
+		this.showSections = show;
+		// The media index and loader remain unchanged. Move existing tiles into
+		// the new presentation so changing headings does not reload previews.
+		this.rerenderCurrentProjection(true);
 	}
 
 	refreshVisibleMedia(): void {
@@ -588,6 +603,9 @@ export class SectionGalleryView extends ItemView {
 			'aria-label',
 			`${count} media ${count === 1 ? 'item' : 'items'}`,
 		);
+		this.registerDomEvent(toolbar, 'keydown', (event) => {
+			this.handleToolbarKeydown(event);
+		});
 
 		nextGallerySearchId += 1;
 		const searchId = `section-gallery-search-${nextGallerySearchId}`;
@@ -664,7 +682,7 @@ export class SectionGalleryView extends ItemView {
 	private toggleAllDisplayedSections(): void {
 		const tree = this.displayedTree;
 		const collapsed = this.displayedCollapsed;
-		if (!tree || !collapsed) {
+		if (!this.showSections || !tree || !collapsed) {
 			return;
 		}
 		const keys = this.collectSectionKeys(tree);
@@ -733,6 +751,21 @@ export class SectionGalleryView extends ItemView {
 	}
 
 	private handleSearchKeydown(event: KeyboardEvent): void {
+		if (
+			!Platform.isMobile &&
+			this.isPlainGalleryArrowEvent(event) &&
+			(event.key === 'ArrowUp' || event.key === 'ArrowDown')
+		) {
+			const target = event.key === 'ArrowUp'
+				? this.searchButton
+				: this.getVisibleGalleryControls()[0];
+			if (target) {
+				event.preventDefault();
+				event.stopPropagation();
+				this.focusGalleryControl(target);
+			}
+			return;
+		}
 		if (
 			!event.defaultPrevented &&
 			!event.isComposing &&
@@ -811,14 +844,28 @@ export class SectionGalleryView extends ItemView {
 		this.searchRenderFrame = null;
 	}
 
-	private rerenderCurrentProjection(): void {
+	private rerenderCurrentProjection(reuseTiles = false): void {
 		const collapsed = this.getCurrentCollapsedState();
 		if (!this.currentTree || !collapsed) {
 			return;
 		}
+		// A queued search/filter projection may have different labels and
+		// highlights, so reuse only tiles from an already settled projection.
+		const canReuseTiles = reuseTiles && this.searchRenderFrame === null;
 		this.cancelSearchRender();
+		const existingTiles = canReuseTiles
+			? Array.from(this.contentEl.querySelectorAll<HTMLButtonElement>(
+					'.section-gallery-tile',
+				))
+			: [];
 		this.cancelPendingRender();
-		for (const media of this.contentEl.querySelectorAll('img, video')) {
+		for (const tile of existingTiles) {
+			const index = Number(tile.dataset.mediaIndex);
+			if (Number.isInteger(index)) {
+				this.reusableTilesByIndex.set(index, tile);
+			}
+		}
+		for (const media of canReuseTiles ? [] : this.contentEl.querySelectorAll('img, video')) {
 			if (
 				media.instanceOf(HTMLImageElement) ||
 				media.instanceOf(HTMLVideoElement)
@@ -866,6 +913,7 @@ export class SectionGalleryView extends ItemView {
 		this.updateSectionToggleButton(tree, displayedCollapsed);
 
 		if (tree.totalItemCount === 0) {
+			this.disposeReusableTiles();
 			const query = this.searchQuery.trim();
 			const kindLabel = this.mediaKindFilter === 'image' ? 'images' : 'videos';
 			const message = activeSearch
@@ -877,7 +925,22 @@ export class SectionGalleryView extends ItemView {
 			return;
 		}
 		this.lazyLoader ??= new LazyMediaLoader(this.app, this.contentEl);
-		this.renderHierarchy(tree, displayedCollapsed, revision);
+		if (this.showSections) {
+			this.renderHierarchy(tree, displayedCollapsed, revision);
+		} else {
+			const grid = this.contentEl.createDiv({ cls: 'section-gallery-grid' });
+			grid.toggleClass('is-fit', this.layoutMode === 'aspect');
+			this.enqueueTileTasks(
+				this.visibleMediaIndices.flatMap((index) => {
+					const item = this.items[index];
+					return item ? [{ grid, index, item }] : [];
+				}),
+				revision,
+			);
+		}
+		if (this.pendingTileTasks.length === 0) {
+			this.disposeReusableTiles();
+		}
 		this.refreshVisibleMedia();
 	}
 
@@ -950,7 +1013,12 @@ export class SectionGalleryView extends ItemView {
 					.onClick(() => this.setMediaKindFilter(null));
 			});
 		}
-		menu.showAtMouseEvent(event);
+		if (event.detail === 0 && this.filterButton) {
+			const rect = this.filterButton.getBoundingClientRect();
+			menu.showAtPosition({ x: rect.left, y: rect.bottom }, this.filterButton.ownerDocument);
+		} else {
+			menu.showAtMouseEvent(event);
+		}
 	}
 
 	private setMediaKindFilter(kind: MediaKind | null): void {
@@ -995,7 +1063,7 @@ export class SectionGalleryView extends ItemView {
 		const label = shouldExpand
 			? 'Expand all sections'
 			: 'Collapse all sections';
-		this.sectionToggleButton?.toggleAttribute('disabled', keys.length === 0);
+		this.sectionToggleButton?.toggleAttribute('disabled', !this.showSections || keys.length === 0);
 		this.sectionToggleButton?.setAttr('aria-label', label);
 		if (this.sectionToggleButton) {
 			setIcon(
@@ -1301,10 +1369,23 @@ export class SectionGalleryView extends ItemView {
 			this.pendingTileTasks.length = 0;
 			this.pendingTileCursor = 0;
 			this.renderFrame = null;
+			this.disposeReusableTiles();
 		}
 	}
 
+	private disposeReusableTiles(): void {
+		for (const tile of this.reusableTilesByIndex.values()) {
+			for (const media of tile.querySelectorAll('img, video')) {
+				if (media.instanceOf(HTMLImageElement) || media.instanceOf(HTMLVideoElement)) {
+					this.lazyLoader?.unobserve(media);
+				}
+			}
+		}
+		this.reusableTilesByIndex.clear();
+	}
+
 	private cancelPendingRender(): void {
+		this.disposeReusableTiles();
 		this.renderRevision += 1;
 		this.pendingTileTasks.length = 0;
 		this.pendingTileCursor = 0;
@@ -1319,7 +1400,12 @@ export class SectionGalleryView extends ItemView {
 		item: GalleryMedia,
 		index: number,
 	): void {
-		const tile = grid.createEl('button', { cls: 'section-gallery-tile' });
+		const reusedTile = this.reusableTilesByIndex.get(index);
+		const tile = reusedTile ?? grid.createEl('button', { cls: 'section-gallery-tile' });
+		if (reusedTile) {
+			this.reusableTilesByIndex.delete(index);
+			grid.appendChild(tile);
+		}
 		tile.type = 'button';
 		tile.tabIndex = -1;
 		tile.dataset.mediaIndex = String(index);
@@ -1333,6 +1419,9 @@ export class SectionGalleryView extends ItemView {
 			) {
 				this.setLastViewedTile(tile);
 			}
+		}
+		if (reusedTile) {
+			return;
 		}
 		const isFilenameMatch =
 			this.searchResult?.matchedItemIndices.has(index) ?? false;
@@ -1636,6 +1725,70 @@ export class SectionGalleryView extends ItemView {
 		this.tilesByTrackingKey.clear();
 	}
 
+	private isPlainGalleryArrowEvent(
+		event: KeyboardEvent,
+	): event is KeyboardEvent & { key: GalleryArrowKey } {
+		return !(
+			event.defaultPrevented ||
+			event.isComposing ||
+			event.altKey ||
+			event.ctrlKey ||
+			event.metaKey ||
+			event.shiftKey
+		) && isGalleryArrowKey(event.key);
+	}
+
+	private getEnabledToolbarControls(): HTMLButtonElement[] {
+		return [
+			this.searchButton,
+			this.sectionToggleButton,
+			this.filterButton,
+			this.layoutButton,
+		].filter((button): button is HTMLButtonElement =>
+			button !== null && !button.disabled && button.getClientRects().length > 0,
+		);
+	}
+
+	private focusToolbarFromGallery(event: KeyboardEvent): boolean {
+		if (Platform.isMobile || event.key !== 'ArrowUp') {
+			return false;
+		}
+		const target = this.getEnabledToolbarControls()[0];
+		if (!target) {
+			return false;
+		}
+		event.preventDefault();
+		event.stopPropagation();
+		this.focusGalleryControl(target);
+		return true;
+	}
+
+	private handleToolbarKeydown(event: KeyboardEvent): void {
+		if (Platform.isMobile || !this.isPlainGalleryArrowEvent(event)) {
+			return;
+		}
+		const controls = this.getEnabledToolbarControls();
+		const currentIndex = controls.findIndex((button) => button === event.target);
+		if (currentIndex === -1) {
+			return;
+		}
+		if (event.key === 'ArrowDown' && this.searchOpen) {
+			event.preventDefault();
+			event.stopPropagation();
+			this.focusSearchInput(false);
+			return;
+		}
+		const index = findGalleryToolbarControlIndex(controls.length, currentIndex, event.key);
+		const target = event.key === 'ArrowDown'
+			? this.getVisibleGalleryControls()[0]
+			: index === null ? null : controls[index];
+		if (target) {
+			event.preventDefault();
+			event.stopPropagation();
+			this.focusGalleryControl(target);
+		}
+	}
+
 	private handleGalleryKeydown(event: KeyboardEvent): void {
 		if (
 			!event.defaultPrevented &&
@@ -1648,20 +1801,15 @@ export class SectionGalleryView extends ItemView {
 			this.clearOrCloseSearch();
 			return;
 		}
-		if (
-			event.defaultPrevented ||
-			event.isComposing ||
-			event.altKey ||
-			event.ctrlKey ||
-			event.metaKey ||
-			event.shiftKey ||
-			!isGalleryArrowKey(event.key)
-		) {
+		if (!this.isPlainGalleryArrowEvent(event)) {
 			return;
 		}
 		const direction = event.key;
 
 		if (event.target === this.contentEl) {
+			if (this.focusToolbarFromGallery(event)) {
+				return;
+			}
 			const controls = this.getVisibleGalleryControls();
 			const target =
 				direction === 'ArrowUp' || direction === 'ArrowLeft'
@@ -1689,6 +1837,7 @@ export class SectionGalleryView extends ItemView {
 			this.findAdjacentTile(tile, direction) ??
 			this.findAdjacentGalleryControl(tile, direction);
 		if (!nextControl) {
+			this.focusToolbarFromGallery(event);
 			return;
 		}
 
@@ -1762,6 +1911,7 @@ export class SectionGalleryView extends ItemView {
 
 		const next = this.findAdjacentGalleryControl(header, event.key);
 		if (!next) {
+			this.focusToolbarFromGallery(event);
 			return;
 		}
 		event.preventDefault();

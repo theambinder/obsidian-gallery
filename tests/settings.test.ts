@@ -4,6 +4,8 @@ import {
 	DEFAULT_TILE_SCALE,
 	normalizeGallerySettings,
 	normalizeTileScale,
+	MIN_TILE_SCALE,
+	MAX_TILE_SCALE,
 } from '../src/settings';
 
 void test('tile scale defaults safely for missing and malformed persisted values', () => {
@@ -13,7 +15,11 @@ void test('tile scale defaults safely for missing and malformed persisted values
 });
 
 void test('tile scale snaps to slider steps and clamps to supported bounds', () => {
-	assert.equal(normalizeTileScale(-100), 60);
+	assert.equal(MIN_TILE_SCALE, 30);
+	assert.equal(MAX_TILE_SCALE, 180);
+	assert.equal(normalizeTileScale(-100), 30);
+	assert.equal(normalizeTileScale(29), 30);
+	assert.equal(normalizeTileScale(35), 40);
 	assert.equal(normalizeTileScale(59), 60);
 	assert.equal(normalizeTileScale(104), 100);
 	assert.equal(normalizeTileScale(106), 110);
@@ -23,11 +29,20 @@ void test('tile scale snaps to slider steps and clamps to supported bounds', () 
 
 void test('legacy settings keep their layout and gain the original tile scale', () => {
 	assert.deepEqual(normalizeGallerySettings({ layoutMode: 'aspect', version: 1 }), {
-		layoutMode: 'aspect', tileScale: 100, version: 1,
+		layoutMode: 'aspect', tileScale: 100, showSections: true, version: 1,
 	});
 	for (const value of [null, [], undefined, 'invalid', { layoutMode: 'invalid' }]) {
 		assert.equal(normalizeGallerySettings(value).layoutMode, 'square');
 		assert.equal(normalizeGallerySettings(value).tileScale, 100);
+		assert.equal(normalizeGallerySettings(value).showSections, true);
+	}
+});
+
+void test('section visibility accepts only boolean preferences and defaults on for legacy or malformed data', () => {
+	assert.equal(normalizeGallerySettings({ showSections: false }).showSections, false);
+	assert.equal(normalizeGallerySettings({ showSections: true }).showSections, true);
+	for (const showSections of [undefined, null, 0, 1, 'false', '', [], {}]) {
+		assert.equal(normalizeGallerySettings({ showSections }).showSections, true);
 	}
 });
 

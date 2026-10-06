@@ -9,11 +9,23 @@ import {
 interface GallerySettingsHost {
 	getTileScale(): number;
 	setTileScale(value: number): Promise<void>;
+	getShowSections(): boolean;
+	setShowSections(value: boolean): Promise<void>;
 }
 
 export class GallerySettingsTab extends PluginSettingTab {
 	constructor(app: App, plugin: Plugin, private readonly host: GallerySettingsHost) {
 		super(app, plugin);
+	}
+
+	getControlValue(key: string): unknown {
+		return key === 'showSections' ? this.host.getShowSections() : undefined;
+	}
+
+	setControlValue(key: string, value: unknown): Promise<void> {
+		return key === 'showSections' && typeof value === 'boolean'
+			? this.host.setShowSections(value)
+			: Promise.resolve();
 	}
 
 	getSettingDefinitions(): SettingDefinitionItem[] {
@@ -23,6 +35,7 @@ export class GallerySettingsTab extends PluginSettingTab {
 				desc: 'Larger tiles show fewer items at the same sidebar width. Changes apply immediately; 100% is the original size.',
 				aliases: ['size', 'zoom', 'thumbnails'],
 				render: (setting) => {
+					setting.setClass('section-gallery-tile-scale-setting');
 					setting.addSlider((slider) => {
 						slider
 							.setLimits(MIN_TILE_SCALE, MAX_TILE_SCALE, TILE_SCALE_STEP)
@@ -44,6 +57,12 @@ export class GallerySettingsTab extends PluginSettingTab {
 						});
 					});
 				},
+			},
+			{
+				name: 'Show sections',
+				desc: 'Group tiles under note headings. Turn off to show a continuous grid.',
+				aliases: ['headings', 'groups'],
+				control: { type: 'toggle', key: 'showSections', defaultValue: true },
 			},
 		];
 	}

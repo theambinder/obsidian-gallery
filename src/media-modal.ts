@@ -343,6 +343,7 @@ export class MediaLightbox extends Modal {
 	private mediaEl: HTMLImageElement | HTMLVideoElement | null = null;
 	private mediaStageEl: HTMLElement | null = null;
 	private mediaFitObserver: ResizeObserver | null = null;
+	private desktopChromeObserver: ResizeObserver | null = null;
 	private mediaTitleEl: HTMLElement | null = null;
 	private readonly neighborImagePreloads = new Map<
 		number,
@@ -474,6 +475,7 @@ export class MediaLightbox extends Modal {
 		this.filmstripScrollerEl = this.filmstripViewportEl.createDiv({
 			cls: 'section-gallery-lightbox-filmstrip-scroller',
 		});
+		this.startDesktopChromeObserver(header, this.filmstripViewportEl);
 		this.filmstripEl = this.filmstripScrollerEl.createDiv({
 			cls: 'section-gallery-lightbox-filmstrip',
 		});
@@ -643,6 +645,7 @@ export class MediaLightbox extends Modal {
 
 	private cancelPendingViewerWork(): void {
 		this.stopMediaFitObserver();
+		this.stopDesktopChromeObserver();
 		this.resetStageWheelGesture();
 		this.cancelFilmstripInertia();
 		this.cancelFilmstripMouseFrame();
@@ -1464,6 +1467,35 @@ export class MediaLightbox extends Modal {
 	private stopMediaFitObserver(): void {
 		this.mediaFitObserver?.disconnect();
 		this.mediaFitObserver = null;
+	}
+
+	private startDesktopChromeObserver(header: HTMLElement, filmstrip: HTMLElement): void {
+		this.stopDesktopChromeObserver();
+		const host = this.contentEl.win as Window & { ResizeObserver?: typeof ResizeObserver };
+		if (!Platform.isDesktopApp || typeof host.ResizeObserver !== 'function') return;
+		const observer = new host.ResizeObserver((entries) => {
+			if (this.closeRequested || this.desktopChromeObserver !== observer) return;
+			for (const entry of entries) {
+				const property = entry.target === header
+					? '--section-gallery-desktop-header-height'
+					: entry.target === filmstrip ? '--section-gallery-desktop-filmstrip-height' : null;
+				if (!property) continue;
+				const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+				if (!Number.isFinite(height) || height < 0 || (entry.target === header && height === 0)) continue;
+				// Header text can grow with theme/font settings. Publishing only its
+				// size avoids synchronous position reads on every gesture, and these
+				// properties affect the stage, never the observed chrome's own size.
+				this.contentEl.style.setProperty(property, `${height}px`);
+			}
+		});
+		this.desktopChromeObserver = observer;
+		observer.observe(header, { box: 'border-box' });
+		observer.observe(filmstrip, { box: 'border-box' });
+	}
+
+	private stopDesktopChromeObserver(): void {
+		this.desktopChromeObserver?.disconnect();
+		this.desktopChromeObserver = null;
 	}
 
 	private refreshNeighborImagePreloads(): void {

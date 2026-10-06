@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.9.7 - 2026-10-07
+
+### Added
+
+- Add a Show sections setting to switch between grouped sections and a continuous media grid.
+- Navigate between the desktop gallery toolbar, search field, headings, and tiles with arrow keys.
+
+### Changed
+
+- Extend the tile-scale range to 30–180% while retaining the default size.
+- Restore vertical separators between sections in the viewer carousel.
+
+### Fixed
+
+- Keep the tile-scale percentage from shifting the setting description while adjusting the slider.
+- Center desktop viewer media between the title and carousel.
+
 ## 0.9.6 - 2026-10-07
 
 ### Fixed

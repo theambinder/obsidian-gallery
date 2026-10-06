@@ -60,14 +60,85 @@ void test('filmstrip keyboard focus never draws a ring while control buttons kee
 	assert.match(rule('.modal.section-gallery-lightbox button:focus-visible'), /outline: 2px solid/u);
 });
 
-void test('filmstrip separators are small circles on desktop and phones', () => {
+void test('filmstrip separators retain the original narrow vertical lines on desktop and phones', () => {
 	const separator = rule('.modal.section-gallery-lightbox .section-gallery-filmstrip-separator');
-	assert.match(separator, /width: 6px;/u);
-	assert.match(separator, /height: 6px;/u);
-	assert.match(separator, /min-width: 6px;/u);
+	assert.match(separator, /width: 4px;/u);
+	assert.match(separator, /height: 42px;/u);
+	assert.match(separator, /min-width: 4px;/u);
+	assert.match(separator, /margin: 0 14px;/u);
 	assert.match(separator, /flex: 0 0 auto;/u);
-	assert.match(separator, /border-radius: 50%;/u);
-	assert.doesNotMatch(rule('body.is-phone .modal.section-gallery-lightbox .section-gallery-filmstrip-separator'), /height:/u);
+	assert.match(separator, /border-radius: 999px;/u);
+	assert.match(separator, /background: var\(--section-gallery-filmstrip-separator-color\);/u);
+	const phone = rule('body.is-phone .modal.section-gallery-lightbox .section-gallery-filmstrip-separator');
+	assert.match(phone, /height: 34px;/u);
+	assert.match(phone, /margin-right: 12px;/u);
+	assert.match(phone, /margin-left: 12px;/u);
+});
+
+void test('desktop fit uses actual compact header and filmstrip heights with equal breathing gaps', () => {
+	const desktop = rule('body:not(.is-mobile) .modal.section-gallery-lightbox', '--section-gallery-desktop-header-top:');
+	assert.match(desktop, /--section-gallery-desktop-header-top: 6px;/u);
+	assert.match(desktop, /--section-gallery-desktop-stage-gap: 22px;/u);
+	assert.match(desktop, /--section-gallery-desktop-filmstrip-bottom: calc\(60px \+ var\(--section-gallery-safe-bottom\)\);/u);
+	const header = rule('body:not(.is-mobile) .modal.section-gallery-lightbox .section-gallery-lightbox-header');
+	assert.match(header, /top: var\(--section-gallery-desktop-header-top\);/u);
+	assert.match(header, /min-height: 36px;/u);
+	const stage = rule('body:not(.is-mobile) .modal.section-gallery-lightbox .section-gallery-lightbox-stage');
+	assert.match(stage, /bottom: var\(--section-gallery-desktop-panel-offset\);/u);
+	assert.match(stage, /padding-top: calc\(\s*var\(--section-gallery-desktop-header-top\) \+\s*var\(--section-gallery-desktop-header-height, 36px\) \+\s*var\(--section-gallery-desktop-stage-gap\)\s*\);/u);
+	assert.match(stage, /padding-bottom: calc\(\s*var\(--section-gallery-desktop-filmstrip-bottom\) \+\s*var\(--section-gallery-desktop-filmstrip-height, 54px\) \+\s*var\(--section-gallery-desktop-stage-gap\)\s*\);/u);
+	assert.doesNotMatch(stylesheet, /padding-top: calc\(86px \+ var\(--titlebar-height/u);
+	assert.equal(rule('body.mod-macos:not(.is-fullscreen):not(.is-mobile) .modal.section-gallery-lightbox .section-gallery-lightbox-stage'), '', 'No old high-specificity macOS padding overrides the compact stage');
+	assert.match(rule('.modal.section-gallery-lightbox .section-gallery-lightbox-page-preview'), /padding: inherit;/u);
+});
+
+void test('desktop metadata and short windows share chrome coordinates while hidden UI restores full bounds', () => {
+	const info = rule('body:not(.is-mobile) .modal.section-gallery-lightbox.is-info-open');
+	assert.match(info, /--section-gallery-desktop-panel-offset: var\(--section-gallery-info-height\);/u);
+	assert.match(info, /--section-gallery-desktop-filmstrip-bottom: 12px;/u);
+	assert.match(rule('body:not(.is-mobile) .modal.section-gallery-lightbox .section-gallery-lightbox-bottom'), /bottom: calc\(\s*var\(--section-gallery-desktop-panel-offset\) \+\s*var\(--section-gallery-desktop-filmstrip-bottom\)\s*\);/u);
+	// The desktop body's selector is stronger than legacy compact-window rules,
+	// including metadata-open ones; no viewport-dependent titlebar reserve.
+	assert.match(stylesheet, /@media \(max-height: 560px\)/u);
+	const hidden = rule('body .modal.section-gallery-lightbox.is-ui-hidden .section-gallery-lightbox-stage');
+	assert.match(hidden, /bottom: 0;/u);
+	assert.match(hidden, /padding-top: var\(--section-gallery-safe-top\);/u);
+	assert.match(hidden, /padding-bottom: var\(--section-gallery-safe-bottom\);/u);
+	assert.ok(stylesheet.indexOf('body .modal.section-gallery-lightbox.is-ui-hidden .section-gallery-lightbox-stage') > stylesheet.indexOf('--section-gallery-desktop-stage-gap: 22px;'), 'Equal-specificity hidden UI override must follow desktop fit');
+	// Verify the equations used by desktop CSS for every relevant geometry.
+	for (const [windowHeight, headerHeight, filmstripHeight, panelHeight] of [
+		[1030, 36, 54, 0], [420, 36, 54, 0],
+		[1030, 48, 54, 248], [420, 48, 54, 142],
+	] as const) {
+		const filmstripBottom = panelHeight ? 12 : 60;
+		const headerBottom = 6 + headerHeight;
+		const filmstripTop = windowHeight - panelHeight - filmstripBottom - filmstripHeight;
+		const stageTop = headerBottom + 22;
+		const stageBottom = filmstripTop - 22;
+		assert.equal(stageTop - headerBottom, filmstripTop - stageBottom);
+		assert.equal((stageTop + stageBottom) / 2, (headerBottom + filmstripTop) / 2);
+	}
+});
+
+void test('desktop centering leaves mobile portrait reserves and landscape safe geometry unchanged', () => {
+	const mobile = rule('body.is-mobile .modal.section-gallery-lightbox .section-gallery-lightbox-stage', '132px');
+	assert.match(mobile, /padding-top: calc\(132px \+ var\(--section-gallery-safe-top\)\);/u);
+	assert.match(mobile, /padding-bottom: calc\(132px \+ var\(--section-gallery-safe-bottom\)\);/u);
+	const mobileInfo = rule('body.is-mobile .modal.section-gallery-lightbox.is-info-open .section-gallery-lightbox-stage', '82px');
+	assert.match(mobileInfo, /padding-top: calc\(82px \+ var\(--section-gallery-safe-top\)\);/u);
+	assert.match(mobileInfo, /padding-bottom: calc\(82px \+ var\(--section-gallery-safe-bottom\)\);/u);
+	const landscape = rule('body.is-mobile .modal.section-gallery-lightbox .section-gallery-lightbox-stage', '--section-gallery-landscape-stage-top');
+	assert.match(landscape, /padding-top: var\(--section-gallery-landscape-stage-top\);/u);
+	assert.match(landscape, /padding-bottom: var\(--section-gallery-landscape-stage-bottom\);/u);
+});
+
+void test('tile-scale percentage has a stable tabular four-character slot scoped to its setting', () => {
+	const value = rule('.section-gallery-tile-scale-setting .slider-value');
+	assert.match(value, /min-width: 4ch;/u);
+	assert.match(value, /flex: 0 0 4ch;/u);
+	assert.match(value, /font-variant-numeric: tabular-nums;/u);
+	assert.match(value, /text-align: right;/u);
+	assert.equal(rule('.slider-value'), '', 'Do not change native slider labels in other settings');
 });
 
 void test('native iOS still anchors remain invisible above loaded thumbnail cascade without important', () => {

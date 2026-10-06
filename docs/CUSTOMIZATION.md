@@ -25,6 +25,8 @@ body .section-gallery-view {
 
 Prefer the **Tile scale** setting for overall thumbnail size; its runtime CSS variable is managed by the plugin. Internal swipe offsets, filmstrip widths, safe-area variables and transforms are calculated by the viewer and are not a stable customization API. Overriding them can break touch layout or system-bar clearance.
 
+To display one continuous media grid without section headings, disable **Settings → Gallery → Show sections**. This changes grouping rather than styling; search by section heading and section labels in the viewer remain available.
+
 To opt out of pinned headings without affecting other panes:
 
 ```css

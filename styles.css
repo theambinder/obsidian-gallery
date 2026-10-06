@@ -56,6 +56,13 @@ body.is-mobile .modal.section-gallery-lightbox {
 	gap: var(--size-2-1);
 }
 
+.section-gallery-tile-scale-setting .slider-value {
+	min-width: 4ch;
+	flex: 0 0 4ch;
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+
 body:not(.is-mobile)
 	.section-gallery-view
 	.nav-buttons-container.section-gallery-toolbar {
@@ -982,18 +989,6 @@ body.is-mobile.section-gallery-lightbox-open
 	gap: 10px;
 }
 
-body.mod-macos:not(.is-fullscreen):not(.is-mobile)
-	.modal.section-gallery-lightbox
-	.section-gallery-lightbox-header {
-	top: calc(var(--titlebar-height, 30px) + 10px);
-}
-
-body.mod-macos:not(.is-fullscreen):not(.is-mobile)
-	.modal.section-gallery-lightbox
-	.section-gallery-lightbox-stage {
-	padding-top: calc(86px + var(--titlebar-height, 30px));
-}
-
 .modal.section-gallery-lightbox .section-gallery-lightbox-title-block {
 	min-width: 0;
 	padding: 6px 12px;
@@ -1183,13 +1178,13 @@ body.mod-macos:not(.is-fullscreen):not(.is-mobile)
 }
 
 .modal.section-gallery-lightbox .section-gallery-filmstrip-separator {
-	width: 6px;
-	height: 6px;
-	min-width: 6px;
+	width: 4px;
+	height: 42px;
+	min-width: 4px;
 	margin: 0 14px;
 	flex: 0 0 auto;
 	background: var(--section-gallery-filmstrip-separator-color);
-	border-radius: 50%;
+	border-radius: 999px;
 	box-shadow: 0 0 0 1px var(--section-gallery-filmstrip-separator-outline);
 	pointer-events: none;
 }
@@ -1685,10 +1680,50 @@ body:not(.is-mobile)
 	display: none;
 }
 
+/* Desktop chrome is much smaller than the mobile overlay. Share its actual
+   observed heights with the fit stage instead of retaining the old phone and
+   macOS titlebar reserves. Both edges leave the same breathing space. */
+body:not(.is-mobile) .modal.section-gallery-lightbox {
+	--section-gallery-desktop-header-top: 6px;
+	--section-gallery-desktop-filmstrip-bottom: calc(60px + var(--section-gallery-safe-bottom));
+	--section-gallery-desktop-panel-offset: 0px;
+	--section-gallery-desktop-stage-gap: 22px;
+}
+
+body:not(.is-mobile) .modal.section-gallery-lightbox.is-info-open {
+	--section-gallery-desktop-filmstrip-bottom: 12px;
+	--section-gallery-desktop-panel-offset: var(--section-gallery-info-height);
+}
+
+body:not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage {
+	bottom: var(--section-gallery-desktop-panel-offset);
+	padding-top: calc(
+		var(--section-gallery-desktop-header-top) +
+			var(--section-gallery-desktop-header-height, 36px) +
+			var(--section-gallery-desktop-stage-gap)
+	);
+	padding-bottom: calc(
+		var(--section-gallery-desktop-filmstrip-bottom) +
+			var(--section-gallery-desktop-filmstrip-height, 54px) +
+			var(--section-gallery-desktop-stage-gap)
+	);
+}
+
+body:not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-bottom {
+	bottom: calc(
+		var(--section-gallery-desktop-panel-offset) +
+			var(--section-gallery-desktop-filmstrip-bottom)
+	);
+}
+
 body:not(.is-mobile)
 	.modal.section-gallery-lightbox
 	.section-gallery-lightbox-header {
-	top: 6px;
+	top: var(--section-gallery-desktop-header-top);
 	right: 6px;
 	left: 6px;
 	display: flex;
@@ -1745,12 +1780,6 @@ body:not(.is-mobile)
 	.modal.section-gallery-lightbox.is-ui-hidden
 	.section-gallery-lightbox-close {
 	pointer-events: none;
-}
-
-body.mod-macos:not(.is-fullscreen):not(.is-mobile)
-	.modal.section-gallery-lightbox
-	.section-gallery-lightbox-header {
-	top: 6px;
 }
 
 body.is-mobile .section-gallery-view {
@@ -2073,6 +2102,7 @@ body.is-phone
 body.is-phone
 	.modal.section-gallery-lightbox
 	.section-gallery-filmstrip-separator {
+	height: 34px;
 	margin-right: 12px;
 	margin-left: 12px;
 }
@@ -2317,7 +2347,7 @@ body.is-android .modal.section-gallery-lightbox .section-gallery-lightbox-footer
 }
 
 .section-gallery-safe-area-probe {
-	--section-gallery-build-version: 0.9.6;
+	--section-gallery-build-version: 0.9.7;
 
 	position: fixed;
 	visibility: hidden;

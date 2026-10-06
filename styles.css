@@ -1,0 +1,2444 @@
+.section-gallery-view,
+.modal.section-gallery-lightbox {
+	--section-gallery-safe-top: env(safe-area-inset-top, 0px);
+	--section-gallery-safe-right: env(safe-area-inset-right, 0px);
+	--section-gallery-safe-bottom: env(safe-area-inset-bottom, 0px);
+	--section-gallery-safe-left: env(safe-area-inset-left, 0px);
+}
+
+/* Android's native host can provide insets even when WebView env() is zero.
+   max(), not addition, prevents double-padding on newer WebViews. */
+body.is-mobile .section-gallery-view,
+body.is-mobile .modal.section-gallery-lightbox {
+	--section-gallery-safe-top: max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));
+	--section-gallery-safe-right: max(env(safe-area-inset-right, 0px), var(--safe-area-inset-right, 0px));
+	--section-gallery-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px));
+	--section-gallery-safe-left: max(env(safe-area-inset-left, 0px), var(--safe-area-inset-left, 0px));
+}
+
+.section-gallery-view {
+	--section-gallery-gap: 2px;
+	--section-gallery-fit-inset: 3px;
+	--section-gallery-radius: 5px;
+	--section-gallery-tile-min: 72px;
+
+	position: relative;
+}
+
+.section-gallery-view .section-gallery-content {
+	padding: 0 8px calc(12px + var(--section-gallery-safe-bottom));
+	background: var(--background-secondary);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+.section-gallery-view .section-gallery-summary {
+	position: static;
+	display: flex;
+	padding: var(--size-4-2) 0 var(--size-4-1);
+	background: var(--background-secondary);
+	flex-direction: column;
+}
+
+.section-gallery-view .section-gallery-count,
+.section-gallery-view .section-gallery-section-count {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+	font-variant-numeric: tabular-nums;
+}
+
+.section-gallery-view .section-gallery-toolbar {
+	position: relative;
+	display: flex;
+	width: 100%;
+	align-items: center;
+	justify-content: center;
+	gap: var(--size-2-1);
+}
+
+body:not(.is-mobile)
+	.section-gallery-view
+	.nav-buttons-container.section-gallery-toolbar {
+	justify-content: center;
+}
+
+.section-gallery-view .section-gallery-toolbar-button {
+	flex: 0 0 auto;
+}
+
+.section-gallery-view .section-gallery-count {
+	position: absolute;
+	top: 50%;
+	inset-inline-end: var(--size-4-2);
+	margin: 0;
+	line-height: 1;
+	transform: translateY(-50%);
+	pointer-events: none;
+}
+
+.section-gallery-view .section-gallery-toolbar-button:disabled {
+	opacity: 0.35;
+}
+
+.section-gallery-view .section-gallery-toolbar-button:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+}
+
+.section-gallery-view
+	.section-gallery-search-button[aria-expanded='true'] {
+	color: var(--icon-color-focused, var(--text-normal));
+	background-color: var(--background-modifier-hover);
+}
+
+.section-gallery-view
+	.section-gallery-filter-button:is(
+		.is-active,
+		.has-active-filter,
+		[aria-pressed='true']
+	) {
+	color: var(--icon-color-focused, var(--text-normal));
+	background-color: var(--background-modifier-hover);
+}
+
+.section-gallery-view .section-gallery-search-row {
+	display: none;
+	box-sizing: border-box;
+	width: 100%;
+	padding: 0 var(--size-4-2);
+}
+
+.section-gallery-view.is-search-open .section-gallery-search-row {
+	display: block;
+}
+
+.section-gallery-view .section-gallery-search-input-container {
+	min-width: 0;
+}
+
+.section-gallery-view .section-gallery-search-input {
+	width: 100%;
+}
+
+.section-gallery-view .section-gallery-search-clear:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+}
+
+.section-gallery-view .section-gallery-search-status {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+.section-gallery-view .section-gallery-section {
+	margin: 0 0 8px;
+}
+
+.section-gallery-view .section-gallery-section .section-gallery-section {
+	/* Sibling sticky summaries must meet edge-to-edge. A top margin here
+	   exposes their pinned ancestor while the outgoing summary is pushed up. */
+	margin-block: 0;
+}
+
+body:not(.is-mobile)
+	.section-gallery-view
+	.section-gallery-content
+	> .section-gallery-section {
+	margin-bottom: 0;
+}
+
+.section-gallery-view .section-gallery-section-header {
+	display: grid;
+	min-height: 30px;
+	padding: 3px 2px 3px
+		calc(2px + min(var(--section-gallery-depth), 4) * 8px);
+	align-items: center;
+	grid-template-columns: 18px minmax(0, 1fr) auto;
+	gap: 4px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	list-style: none;
+}
+
+.section-gallery-view .section-gallery-section-header::-webkit-details-marker {
+	display: none;
+}
+
+.section-gallery-view .section-gallery-section-header:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+}
+
+.section-gallery-view
+	.section-gallery-section-header.is-search-match {
+	background-color: var(--background-modifier-hover);
+}
+
+.section-gallery-view .section-gallery-section-chevron {
+	display: grid;
+	place-items: center;
+	color: var(--text-faint);
+	transition: transform 120ms ease-out;
+}
+
+.section-gallery-view details[open] > summary .section-gallery-section-chevron {
+	transform: rotate(90deg);
+}
+
+.section-gallery-view .section-gallery-section-chevron svg {
+	width: 15px;
+	height: 15px;
+}
+
+.section-gallery-view .section-gallery-section-title {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--nav-item-color, var(--text-muted));
+	font-size: var(--nav-item-size, var(--font-ui-small));
+	font-weight: var(--nav-item-weight, var(--font-normal));
+	line-height: var(--line-height-tight);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.section-gallery-view .section-gallery-section-body {
+	min-width: 0;
+}
+
+.section-gallery-view .section-gallery-grid {
+	display: grid;
+	grid-template-columns: repeat(
+		auto-fill,
+		minmax(min(calc(var(--section-gallery-tile-min) * var(--section-gallery-tile-scale, 1)), 100%), 1fr)
+	);
+	gap: var(--section-gallery-gap);
+}
+
+.section-gallery-view .section-gallery-tile {
+	position: relative;
+	display: block;
+	width: 100%;
+	height: auto;
+	min-width: 0;
+	padding: 0;
+	contain: layout paint style;
+	overflow: hidden;
+	background: transparent;
+	border: 0;
+	border-radius: var(--section-gallery-radius);
+	box-shadow: none;
+	aspect-ratio: 1;
+	cursor: zoom-in;
+	touch-action: manipulation;
+}
+
+.section-gallery-view .section-gallery-tile:focus-visible {
+	z-index: 1;
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.section-gallery-view .section-gallery-tile.is-last-viewed {
+	z-index: 1;
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.section-gallery-view .section-gallery-tile.is-last-viewed:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.section-gallery-view .section-gallery-tile.is-search-match {
+	z-index: 1;
+	box-shadow: inset 0 0 0 2px var(--background-modifier-border-focus);
+}
+
+body:not(.is-mobile)
+	.section-gallery-view:has(:focus-visible)
+	.section-gallery-tile.is-last-viewed:not(:focus-visible) {
+	outline-color: transparent;
+}
+
+.section-gallery-view .section-gallery-search-mark {
+	padding: 0 1px;
+	color: inherit;
+	background-color: var(--text-highlight-bg);
+	border-radius: 2px;
+	box-decoration-break: clone;
+	-webkit-box-decoration-break: clone;
+}
+
+.section-gallery-view .section-gallery-search-filename {
+	position: absolute;
+	right: 4px;
+	bottom: 4px;
+	left: 4px;
+	z-index: 2;
+	padding: 3px 6px;
+	overflow: hidden;
+	color: var(--text-normal);
+	background-color: color-mix(
+		in srgb,
+		var(--background-primary) 88%,
+		transparent
+	);
+	border: 1px solid
+		color-mix(in srgb, var(--text-normal) 12%, transparent);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.2;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	pointer-events: none;
+}
+
+.section-gallery-view
+	.section-gallery-tile:has(.section-gallery-video-duration)
+	.section-gallery-search-filename {
+	top: 4px;
+	right: 4px;
+	bottom: auto;
+}
+
+.section-gallery-view .section-gallery-thumbnail {
+	display: block;
+	width: 100%;
+	height: 100%;
+	opacity: 0;
+	object-fit: cover;
+	transition: opacity 120ms ease-out;
+	pointer-events: none;
+}
+
+.section-gallery-view .section-gallery-grid.is-fit .section-gallery-tile {
+	background: transparent;
+}
+
+.section-gallery-view .section-gallery-grid.is-fit .section-gallery-thumbnail {
+	position: absolute;
+	top: var(--section-gallery-fit-inset);
+	right: var(--section-gallery-fit-inset);
+	bottom: var(--section-gallery-fit-inset);
+	left: var(--section-gallery-fit-inset);
+	width: calc(
+		100% - var(--section-gallery-fit-inset) -
+			var(--section-gallery-fit-inset)
+	);
+	height: calc(
+		100% - var(--section-gallery-fit-inset) -
+			var(--section-gallery-fit-inset)
+	);
+	border-radius: calc(var(--section-gallery-radius) - 1px);
+	object-fit: contain;
+}
+
+.section-gallery-view .section-gallery-video-frame {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	overflow: hidden;
+	border-radius: inherit;
+	pointer-events: none;
+}
+
+.section-gallery-view
+	.section-gallery-video-frame
+	> .section-gallery-thumbnail {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	border-radius: inherit;
+	object-fit: cover;
+}
+
+.section-gallery-view .section-gallery-grid.is-fit .section-gallery-video-frame {
+	top: var(--section-gallery-fit-inset);
+	right: var(--section-gallery-fit-inset);
+	bottom: var(--section-gallery-fit-inset);
+	left: var(--section-gallery-fit-inset);
+	border-radius: calc(var(--section-gallery-radius) - 1px);
+}
+
+.section-gallery-view
+	.section-gallery-grid.is-fit
+	.section-gallery-video-frame
+	> .section-gallery-thumbnail {
+	top: var(--section-gallery-video-block-offset, 0%);
+	right: var(--section-gallery-video-inline-offset, 0%);
+	bottom: var(--section-gallery-video-block-offset, 0%);
+	left: var(--section-gallery-video-inline-offset, 0%);
+	width: calc(
+		100% - var(--section-gallery-video-inline-offset, 0%) -
+			var(--section-gallery-video-inline-offset, 0%)
+	);
+	height: calc(
+		100% - var(--section-gallery-video-block-offset, 0%) -
+			var(--section-gallery-video-block-offset, 0%)
+	);
+	object-fit: contain;
+}
+
+.section-gallery-view .section-gallery-tile.is-loaded .section-gallery-thumbnail {
+	opacity: 1;
+}
+
+.section-gallery-view .section-gallery-tile.has-error::before,
+.section-gallery-view .section-gallery-tile.has-error::after,
+.modal.section-gallery-lightbox .section-gallery-filmstrip-item.has-error::before,
+.modal.section-gallery-lightbox .section-gallery-filmstrip-item.has-error::after {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 22px;
+	height: 1px;
+	background: var(--text-faint);
+	content: '';
+}
+
+.section-gallery-view .section-gallery-tile.has-error::before,
+.modal.section-gallery-lightbox .section-gallery-filmstrip-item.has-error::before {
+	transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.section-gallery-view .section-gallery-tile.has-error::after,
+.modal.section-gallery-lightbox .section-gallery-filmstrip-item.has-error::after {
+	transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.section-gallery-view .section-gallery-video-preview-unavailable {
+	display: none;
+}
+
+.section-gallery-view .section-gallery-tile.is-video.has-error::before,
+.section-gallery-view .section-gallery-tile.is-video.has-error::after {
+	display: none;
+}
+
+.section-gallery-view .section-gallery-tile.has-error .section-gallery-video-preview-unavailable {
+	position: absolute;
+	inset: 0;
+	display: grid;
+	padding: 6px 4px 22px;
+	place-items: center;
+	color: var(--text-muted);
+	font-size: var(--font-smallest);
+	line-height: 1.2;
+	text-align: center;
+}
+
+.section-gallery-view .section-gallery-video-duration {
+	position: absolute;
+	right: 4px;
+	bottom: 4px;
+	z-index: 3;
+	display: block;
+	max-width: calc(100% - 8px);
+	padding: 2px 4px;
+	overflow: hidden;
+	color: white;
+	background: rgb(0 0 0 / 68%);
+	border: 0;
+	border-radius: 3px;
+	font-size: 10px;
+	font-variant-numeric: tabular-nums;
+	font-weight: var(--font-medium, 500);
+	line-height: 1.15;
+	text-overflow: ellipsis;
+	text-shadow: 0 1px 1px rgb(0 0 0 / 48%);
+	white-space: nowrap;
+	pointer-events: none;
+}
+
+.section-gallery-view .section-gallery-video-duration:empty {
+	display: none;
+}
+
+.section-gallery-view
+	.section-gallery-grid.is-fit
+	.section-gallery-video-duration {
+	right: calc(
+		var(--section-gallery-video-inline-offset, 0%) + 4px
+	);
+	bottom: calc(
+		var(--section-gallery-video-block-offset, 0%) + 4px
+	);
+	max-width: calc(
+		100% - var(--section-gallery-video-inline-offset, 0%) -
+			var(--section-gallery-video-inline-offset, 0%) - 8px
+	);
+}
+
+.section-gallery-view .section-gallery-empty {
+	display: flex;
+	min-height: 180px;
+	padding: 28px 16px;
+	align-items: center;
+	justify-content: center;
+	flex-direction: column;
+	gap: 10px;
+	color: var(--text-muted);
+	text-align: center;
+}
+
+.section-gallery-view .section-gallery-empty-icon {
+	color: var(--text-faint);
+}
+
+.section-gallery-view .section-gallery-empty-icon svg {
+	width: 30px;
+	height: 30px;
+	stroke-width: 1.4;
+}
+
+.section-gallery-view .section-gallery-empty-message {
+	max-width: 220px;
+	font-size: var(--font-ui-small);
+	line-height: var(--line-height-tight);
+}
+
+.section-gallery-view .section-gallery-empty.is-search-empty {
+	min-height: min(40vh, 240px);
+}
+
+.section-gallery-view
+	.section-gallery-empty.is-search-empty
+	.section-gallery-empty-message {
+	max-width: 280px;
+}
+
+.section-gallery-lightbox-container {
+	--section-gallery-lightbox-background: var(--background-primary);
+	--section-gallery-lightbox-canvas-background: var(
+		--section-gallery-lightbox-background
+	);
+	--section-gallery-lightbox-placeholder-background: var(
+		--background-secondary
+	);
+	--section-gallery-lightbox-placeholder-border: var(
+		--background-modifier-border
+	);
+	--section-gallery-lightbox-placeholder-color: var(--text-muted);
+	--section-gallery-lightbox-ui-surface: rgb(36 36 36 / 78%);
+	--section-gallery-lightbox-ui-surface-strong: rgb(24 24 24 / 72%);
+	--section-gallery-lightbox-ui-panel: rgb(22 22 22 / 96%);
+	--section-gallery-lightbox-ui-text: #fff;
+	--section-gallery-lightbox-ui-muted: rgb(255 255 255 / 66%);
+	--section-gallery-lightbox-ui-subtle: rgb(255 255 255 / 55%);
+	--section-gallery-lightbox-ui-border: rgb(255 255 255 / 12%);
+	--section-gallery-lightbox-ui-divider: rgb(255 255 255 / 10%);
+	--section-gallery-lightbox-ui-active-surface: rgb(255 255 255 / 92%);
+	--section-gallery-lightbox-ui-active-text: #111;
+	--section-gallery-lightbox-ui-hover: rgb(62 62 62 / 86%);
+	--section-gallery-lightbox-ui-focus: #fff;
+	--section-gallery-filmstrip-separator-color: rgb(255 255 255 / 92%);
+	--section-gallery-filmstrip-separator-outline: rgb(0 0 0 / 35%);
+
+	background: var(--section-gallery-lightbox-background);
+}
+
+body.theme-dark .section-gallery-lightbox-container {
+	--section-gallery-lightbox-background: #000;
+}
+
+body.theme-light .section-gallery-lightbox-container {
+	--section-gallery-lightbox-ui-surface: var(--background-secondary);
+	--section-gallery-lightbox-ui-surface-strong: var(--background-secondary);
+	--section-gallery-lightbox-ui-panel: var(--background-secondary);
+	--section-gallery-lightbox-ui-text: var(--text-normal);
+	--section-gallery-lightbox-ui-muted: var(--text-muted);
+	--section-gallery-lightbox-ui-subtle: var(--text-faint);
+	--section-gallery-lightbox-ui-border: var(--background-modifier-border);
+	--section-gallery-lightbox-ui-divider: var(--background-modifier-border);
+	--section-gallery-lightbox-ui-active-surface: var(
+		--background-modifier-hover
+	);
+	--section-gallery-lightbox-ui-active-text: var(--interactive-accent);
+	--section-gallery-lightbox-ui-hover: var(--background-modifier-hover);
+	--section-gallery-lightbox-ui-focus: var(--interactive-accent);
+	--section-gallery-filmstrip-separator-color: var(--text-normal);
+	--section-gallery-filmstrip-separator-outline: rgb(255 255 255 / 45%);
+}
+
+.section-gallery-lightbox-container > .modal-bg {
+	background: var(--section-gallery-lightbox-background);
+}
+
+/* The viewer positions its controls inside the safe area itself. */
+body.is-phone .section-gallery-lightbox-container {
+	--dialog-max-height: 100vh;
+	--dialog-max-height: 100dvh;
+	--dialog-max-width: 100vw;
+	--dialog-width: 100vw;
+	--modal-height: 100vh;
+	--modal-height: 100dvh;
+	--modal-max-height: 100vh;
+	--modal-max-height: 100dvh;
+	--modal-max-width: 100vw;
+	--modal-width: 100vw;
+
+	position: fixed;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	box-sizing: border-box;
+	width: auto;
+	height: auto;
+	min-width: 0;
+	min-height: 0;
+	max-width: none;
+	max-height: none;
+	padding: 0;
+	margin: 0;
+	align-items: stretch;
+	justify-content: center;
+	overflow: hidden;
+}
+
+body.is-phone
+	.section-gallery-lightbox-container
+	> .modal.section-gallery-lightbox {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	box-sizing: border-box;
+	width: auto;
+	height: auto;
+	min-width: 0;
+	min-height: 0;
+	max-width: none;
+	max-height: none;
+	padding: 0;
+	margin: 0;
+	overflow: hidden;
+	background: var(--section-gallery-lightbox-background);
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+}
+
+body.is-mobile
+	.section-gallery-lightbox-container.is-closing-immediately {
+	opacity: 0;
+	visibility: hidden;
+	pointer-events: none;
+	transition: none;
+}
+
+.modal.section-gallery-lightbox {
+	--section-gallery-info-height: min(44vh, 360px);
+	--section-gallery-info-height: min(44dvh, 360px);
+	--section-gallery-layout-duration: 180ms;
+	--section-gallery-layout-easing: cubic-bezier(0.2, 0.8, 0.2, 1);
+	--section-gallery-selection-duration: 150ms;
+
+	position: relative;
+	width: 100vw;
+	height: 100vh;
+	height: 100dvh;
+	max-width: 100vw;
+	max-height: 100vh;
+	max-height: 100dvh;
+	padding: 0;
+	overflow: hidden;
+	background: var(--section-gallery-lightbox-background);
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+}
+
+@media (min-height: 561px) {
+	body:not(.is-mobile) .modal.section-gallery-lightbox {
+		--section-gallery-info-height: min(32vh, 280px);
+		--section-gallery-info-height: min(32dvh, 280px);
+	}
+}
+
+.section-gallery-lightbox-container .modal-close-button {
+	display: none;
+}
+
+.modal.section-gallery-lightbox > .modal-header {
+	display: none;
+}
+
+.modal.section-gallery-lightbox > .modal-header-button {
+	display: none;
+}
+
+body.is-mobile.section-gallery-lightbox-open
+	.sidebar-toggle-button.mod-left,
+body.is-mobile.section-gallery-lightbox-open
+	.sidebar-toggle-button.mod-right {
+	visibility: hidden;
+	pointer-events: none;
+}
+
+.modal.section-gallery-lightbox
+	> .modal-content.section-gallery-lightbox-content {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	box-sizing: border-box;
+	width: auto;
+	height: auto;
+	min-width: 0;
+	min-height: 0;
+	padding: 0;
+	margin: 0;
+	flex: none;
+	overflow: hidden;
+	background: var(--section-gallery-lightbox-background);
+	color: var(--section-gallery-lightbox-ui-text);
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-stage {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	display: flex;
+	min-width: 0;
+	min-height: 0;
+	padding: calc(86px + var(--section-gallery-safe-top))
+		max(8px, var(--section-gallery-safe-right))
+		calc(142px + var(--section-gallery-safe-bottom))
+		max(8px, var(--section-gallery-safe-left));
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	background: var(--section-gallery-lightbox-canvas-background);
+	touch-action: none;
+	transition:
+		padding var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing),
+		bottom var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing),
+		left var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing),
+		background-color var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing);
+}
+
+.modal.section-gallery-lightbox.is-info-open
+	.section-gallery-lightbox-stage {
+	bottom: var(--section-gallery-info-height);
+	padding-bottom: calc(86px + var(--section-gallery-safe-bottom));
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-media {
+	display: block;
+	width: auto;
+	height: auto;
+	max-width: 100%;
+	max-height: 100%;
+	object-fit: contain;
+	user-select: none;
+	-webkit-user-drag: none;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-image
+	.section-gallery-lightbox-media {
+	transform-origin: center;
+	touch-action: none;
+	will-change: transform;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-image {
+	cursor: default;
+}
+
+.modal.section-gallery-lightbox.is-media-zoomed
+	.section-gallery-lightbox-stage.is-image {
+	cursor: grab;
+}
+
+.modal.section-gallery-lightbox.is-media-zoomed
+	.section-gallery-lightbox-stage.is-image:active {
+	cursor: grabbing;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-scrubbing
+	> .section-gallery-lightbox-media {
+	display: none;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-scrub-preview {
+	display: block;
+	width: auto;
+	height: auto;
+	max-width: 100%;
+	max-height: 100%;
+	object-fit: contain;
+	user-select: none;
+	-webkit-user-drag: none;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-scrub-placeholder,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-page-preview-placeholder,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-rotation-freeze-placeholder {
+	color: var(--section-gallery-lightbox-placeholder-color);
+	background: var(--section-gallery-lightbox-placeholder-background);
+	border: 1px solid var(--section-gallery-lightbox-placeholder-border);
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-scrub-placeholder {
+	display: grid;
+	max-width: min(80%, 420px);
+	padding: 22px 28px;
+	place-items: center;
+	gap: 12px;
+	border-radius: 16px;
+	text-align: center;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-scrub-placeholder-icon
+	svg {
+	width: 32px;
+	height: 32px;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-scrub-placeholder-name {
+	max-width: 100%;
+	overflow: hidden;
+	font-size: var(--font-ui-small);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-page-preview {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	z-index: 1;
+	display: flex;
+	box-sizing: border-box;
+	padding: inherit;
+	align-items: center;
+	justify-content: center;
+	pointer-events: none;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-page-preview.is-previous {
+	translate: calc(
+		-100% + var(--section-gallery-page-offset-x, 0px)
+	) 0;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-page-preview.is-next {
+	translate: calc(
+		100% + var(--section-gallery-page-offset-x, 0px)
+	) 0;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-swiping
+	> .section-gallery-lightbox-media,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-swiping
+	> .section-gallery-lightbox-scrub-preview,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-swiping
+	> .section-gallery-lightbox-scrub-placeholder,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-settling
+	> .section-gallery-lightbox-media,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-settling
+	> .section-gallery-lightbox-scrub-preview,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-settling
+	> .section-gallery-lightbox-scrub-placeholder {
+	translate: var(--section-gallery-page-offset-x, 0px) 0;
+	will-change: translate;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-swiping
+	> .section-gallery-lightbox-media,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-swiping
+	> .section-gallery-lightbox-scrub-preview,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-swiping
+	> .section-gallery-lightbox-scrub-placeholder,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-swiping
+	> .section-gallery-lightbox-page-preview {
+	transition: none;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-settling
+	> .section-gallery-lightbox-media,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-settling
+	> .section-gallery-lightbox-scrub-preview,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-settling
+	> .section-gallery-lightbox-scrub-placeholder,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.is-page-settling
+	> .section-gallery-lightbox-page-preview {
+	/* The page and filmstrip share a single rAF clock during release. */
+	transition: none;
+	will-change: translate;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-page-preview-media {
+	display: block;
+	width: auto;
+	height: auto;
+	max-width: 100%;
+	max-height: 100%;
+	object-fit: contain;
+	user-select: none;
+	-webkit-user-drag: none;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-page-preview-placeholder {
+	display: grid;
+	max-width: min(80%, 420px);
+	padding: 22px 28px;
+	place-items: center;
+	gap: 12px;
+	border-radius: 16px;
+	text-align: center;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-page-preview-icon
+	svg {
+	width: 32px;
+	height: 32px;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-page-preview-name {
+	max-width: 100%;
+	overflow: hidden;
+	font-size: var(--font-ui-small);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-header {
+	--section-gallery-ui-transition:
+		top var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing),
+		right var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing),
+		left var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing),
+		opacity 140ms ease-out;
+
+	position: absolute;
+	top: calc(10px + var(--section-gallery-safe-top));
+	right: max(12px, var(--section-gallery-safe-right));
+	left: max(12px, var(--section-gallery-safe-left));
+	z-index: 4;
+	display: grid;
+	min-height: 54px;
+	align-items: center;
+	grid-template-columns: 44px minmax(0, 1fr) 44px;
+	gap: 10px;
+}
+
+body.mod-macos:not(.is-fullscreen):not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-header {
+	top: calc(var(--titlebar-height, 30px) + 10px);
+}
+
+body.mod-macos:not(.is-fullscreen):not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage {
+	padding-top: calc(86px + var(--titlebar-height, 30px));
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-title-block {
+	min-width: 0;
+	padding: 6px 12px;
+	background: var(--section-gallery-lightbox-ui-surface-strong);
+	border-radius: 15px;
+	text-align: center;
+	backdrop-filter: blur(12px);
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-section-title,
+.modal.section-gallery-lightbox .section-gallery-lightbox-title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-section-title {
+	color: var(--section-gallery-lightbox-ui-muted);
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-normal);
+	line-height: 1.2;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-title {
+	margin-top: 2px;
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-semibold);
+	line-height: 1.25;
+}
+
+.modal.section-gallery-lightbox button {
+	display: grid;
+	width: 44px;
+	height: 44px;
+	padding: 0;
+	place-items: center;
+	color: var(--section-gallery-lightbox-ui-text);
+	background: var(--section-gallery-lightbox-ui-surface);
+	border: 0;
+	border-radius: 50%;
+	box-shadow: none;
+	backdrop-filter: blur(12px);
+}
+
+.modal.section-gallery-lightbox button:focus-visible {
+	outline: 2px solid var(--section-gallery-lightbox-ui-focus);
+	outline-offset: 2px;
+}
+
+.modal.section-gallery-lightbox button:focus:not(:focus-visible) {
+	outline: 0;
+	box-shadow: none;
+}
+
+.modal.section-gallery-lightbox button:disabled {
+	opacity: 0.5;
+}
+
+.modal.section-gallery-lightbox button.is-hidden,
+.modal.section-gallery-lightbox .is-hidden {
+	display: none;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-bottom {
+	--section-gallery-ui-transition:
+		right var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing),
+		bottom var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing),
+		left var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing),
+		opacity 140ms ease-out;
+
+	position: absolute;
+	right: max(12px, var(--section-gallery-safe-right));
+	bottom: calc(60px + var(--section-gallery-safe-bottom));
+	left: max(12px, var(--section-gallery-safe-left));
+	z-index: 4;
+	display: block;
+}
+
+.modal.section-gallery-lightbox.is-info-open
+	.section-gallery-lightbox-bottom {
+	bottom: calc(var(--section-gallery-info-height) + 12px);
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-filmstrip-viewport {
+	--section-gallery-filmstrip-item-width: 26px;
+	--section-gallery-filmstrip-item-current-width: 64px;
+	--section-gallery-filmstrip-item-height: 48px;
+	--section-gallery-filmstrip-thumbnail-inset-block: 3px;
+	--section-gallery-filmstrip-thumbnail-inset-inline: 0px;
+	--section-gallery-filmstrip-thumbnail-current-inset-block: 3px;
+	--section-gallery-filmstrip-thumbnail-current-inset-inline: 11px;
+	--section-gallery-filmstrip-thumbnail-radius: 5px;
+
+	position: relative;
+	min-width: 0;
+	height: calc(var(--section-gallery-filmstrip-item-height) + 6px);
+	overflow: hidden;
+	touch-action: pan-x;
+	cursor: grab;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-filmstrip-viewport:active {
+	cursor: grabbing;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-filmstrip-scroller {
+	width: 100%;
+	height: 100%;
+	overflow-x: auto;
+	overflow-y: hidden;
+	overscroll-behavior-x: contain;
+	scrollbar-width: none;
+	touch-action: pan-x;
+	-webkit-overflow-scrolling: touch;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-filmstrip-scroller.is-stage-gesture-frozen {
+	overflow-x: hidden;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-filmstrip-scroller::-webkit-scrollbar {
+	display: none;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-filmstrip {
+	display: flex;
+	width: max-content;
+	min-width: 100%;
+	height: 100%;
+	padding: 3px 0;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 2px;
+}
+
+.modal.section-gallery-lightbox .section-gallery-filmstrip-edge-spacer {
+	height: 1px;
+	min-width: 0;
+	flex: 0 0 auto;
+	pointer-events: none;
+}
+
+.modal.section-gallery-lightbox .section-gallery-filmstrip-item {
+	position: relative;
+	display: block;
+	width: var(--section-gallery-filmstrip-item-width);
+	height: var(--section-gallery-filmstrip-item-height);
+	min-width: 0;
+	padding: 0;
+	flex: 0 0 auto;
+	overflow: hidden;
+	background: transparent;
+	border: 0;
+	border-radius: 6px;
+	box-shadow: none;
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+	transition: width var(--section-gallery-selection-duration)
+		var(--section-gallery-layout-easing);
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-filmstrip-item.is-current {
+	width: var(--section-gallery-filmstrip-item-current-width);
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-filmstrip-item:is(.is-page-origin, .is-page-target) {
+	transition: none;
+}
+
+.modal.section-gallery-lightbox .section-gallery-filmstrip-separator {
+	width: 4px;
+	height: 42px;
+	min-width: 4px;
+	margin: 0 14px;
+	background: var(--section-gallery-filmstrip-separator-color);
+	border-radius: 999px;
+	box-shadow: 0 0 0 1px var(--section-gallery-filmstrip-separator-outline);
+	pointer-events: none;
+}
+
+.modal.section-gallery-lightbox .section-gallery-filmstrip-thumbnail {
+	position: absolute;
+	top: var(--section-gallery-filmstrip-thumbnail-inset-block);
+	right: var(--section-gallery-filmstrip-thumbnail-inset-inline);
+	bottom: var(--section-gallery-filmstrip-thumbnail-inset-block);
+	left: var(--section-gallery-filmstrip-thumbnail-inset-inline);
+	display: block;
+	width: calc(
+		100% - var(--section-gallery-filmstrip-thumbnail-inset-inline) -
+			var(--section-gallery-filmstrip-thumbnail-inset-inline)
+	);
+	height: calc(
+		100% - var(--section-gallery-filmstrip-thumbnail-inset-block) -
+			var(--section-gallery-filmstrip-thumbnail-inset-block)
+	);
+	border-radius: var(--section-gallery-filmstrip-thumbnail-radius);
+	opacity: 0;
+	object-fit: cover;
+	transition:
+		top var(--section-gallery-selection-duration)
+			var(--section-gallery-layout-easing),
+		right var(--section-gallery-selection-duration)
+			var(--section-gallery-layout-easing),
+		bottom var(--section-gallery-selection-duration)
+			var(--section-gallery-layout-easing),
+		left var(--section-gallery-selection-duration)
+			var(--section-gallery-layout-easing),
+		width var(--section-gallery-selection-duration)
+			var(--section-gallery-layout-easing),
+		height var(--section-gallery-selection-duration)
+			var(--section-gallery-layout-easing),
+		opacity 120ms ease-out;
+	pointer-events: none;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-filmstrip-item:is(.is-page-origin, .is-page-target)
+	> .section-gallery-filmstrip-thumbnail {
+	transition: none;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-filmstrip-item.is-current
+	.section-gallery-filmstrip-thumbnail {
+	top: var(--section-gallery-filmstrip-thumbnail-current-inset-block);
+	right: var(--section-gallery-filmstrip-thumbnail-current-inset-inline);
+	bottom: var(--section-gallery-filmstrip-thumbnail-current-inset-block);
+	left: var(--section-gallery-filmstrip-thumbnail-current-inset-inline);
+	width: calc(
+		100% - var(--section-gallery-filmstrip-thumbnail-current-inset-inline) -
+			var(--section-gallery-filmstrip-thumbnail-current-inset-inline)
+	);
+	height: calc(
+		100% - var(--section-gallery-filmstrip-thumbnail-current-inset-block) -
+			var(--section-gallery-filmstrip-thumbnail-current-inset-block)
+	);
+}
+
+.modal.section-gallery-lightbox .section-gallery-filmstrip-item.is-loaded
+	.section-gallery-filmstrip-thumbnail {
+	opacity: 1;
+}
+
+.modal.section-gallery-lightbox .section-gallery-filmstrip-play-badge {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	display: grid;
+	width: 22px;
+	height: 22px;
+	place-items: center;
+	color: #fff;
+	background: rgb(0 0 0 / 58%);
+	border-radius: 50%;
+	transform: translate(-50%, -50%) scale(0.55);
+	transition: transform var(--section-gallery-selection-duration)
+		var(--section-gallery-layout-easing);
+	pointer-events: none;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-filmstrip-item.is-current
+	.section-gallery-filmstrip-play-badge {
+	transform: translate(-50%, -50%) scale(1);
+}
+
+.modal.section-gallery-lightbox .section-gallery-filmstrip-play-badge svg {
+	width: 12px;
+	height: 12px;
+	fill: currentColor;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-footer {
+	--section-gallery-ui-transition:
+		right var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing),
+		bottom var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing),
+		left var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing),
+		opacity 140ms ease-out;
+
+	position: absolute;
+	right: max(12px, var(--section-gallery-safe-right));
+	bottom: calc(8px + var(--section-gallery-safe-bottom));
+	left: max(12px, var(--section-gallery-safe-left));
+	z-index: 5;
+	display: grid;
+	height: 44px;
+	align-items: center;
+	grid-template-columns: 44px minmax(0, 1fr) 44px;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-counter {
+	justify-self: center;
+	padding: 5px 10px;
+	color: var(--section-gallery-lightbox-ui-text);
+	background: var(--section-gallery-lightbox-ui-surface-strong);
+	border-radius: 999px;
+	font-size: var(--font-ui-smaller);
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+	backdrop-filter: blur(10px);
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-info-button {
+	justify-self: start;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-info-button.is-active,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-info-button[aria-expanded='true'],
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-info-button[aria-pressed='true'] {
+	color: var(--section-gallery-lightbox-ui-active-text);
+	background: var(--section-gallery-lightbox-ui-active-surface);
+}
+
+/* Keep the desktop information control visually light until it is enabled.
+   The 44px button remains the hit target; the active fill is inset from it. */
+body:not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-info-button {
+	color: var(--section-gallery-lightbox-ui-text);
+	background: transparent;
+	box-shadow: none;
+	backdrop-filter: none;
+}
+
+body:not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-info-button
+	svg
+	circle {
+	fill: transparent;
+	transition: fill 120ms ease-out;
+}
+
+body:not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-info-button:is(
+		.is-active,
+		[aria-expanded='true'],
+		[aria-pressed='true']
+	) {
+	color: var(--section-gallery-lightbox-ui-active-text);
+	background: transparent;
+}
+
+body:not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-info-button:is(
+		.is-active,
+		[aria-expanded='true'],
+		[aria-pressed='true']
+	)
+	svg
+	circle {
+	fill: var(--section-gallery-lightbox-ui-active-surface);
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-share {
+	justify-self: end;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-share.is-preparing svg {
+	animation: section-gallery-spin 900ms linear infinite;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-info-panel {
+	--section-gallery-ui-transition:
+		transform var(--section-gallery-layout-duration)
+			var(--section-gallery-layout-easing),
+		opacity 140ms ease-out;
+
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	z-index: 3;
+	height: var(--section-gallery-info-height);
+	padding: 0;
+	overflow: hidden;
+	color: var(--section-gallery-lightbox-ui-text);
+	background: var(--section-gallery-lightbox-ui-panel);
+	border-top: 1px solid var(--section-gallery-lightbox-ui-border);
+	box-shadow: none;
+	transform: translateY(100%);
+	will-change: transform;
+}
+
+.modal.section-gallery-lightbox.is-info-open
+	.section-gallery-lightbox-info-panel {
+	transform: translateY(0);
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-info-scroll {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: calc(60px + var(--section-gallery-safe-bottom));
+	left: 0;
+	padding: 12px max(20px, var(--section-gallery-safe-right)) 10px
+		max(20px, var(--section-gallery-safe-left));
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-info-content {
+	width: min(100%, 680px);
+	margin-inline: auto;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-info-list {
+	display: grid;
+	margin: 0;
+	grid-template-columns: minmax(92px, 0.28fr) minmax(0, 1fr);
+	column-gap: 16px;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-info-list dt,
+.modal.section-gallery-lightbox .section-gallery-lightbox-info-list dd {
+	min-width: 0;
+	padding: 7px 0;
+	margin: 0;
+	border-top: 1px solid var(--section-gallery-lightbox-ui-divider);
+	font-size: var(--font-ui-small);
+	line-height: 1.35;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-info-list
+	> dt:first-child,
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-info-list
+	> dt:first-child
+	+ dd {
+	border-top: 0;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-info-list dt {
+	color: var(--section-gallery-lightbox-ui-subtle);
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-info-list dd {
+	overflow-wrap: anywhere;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-status {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-section-toast {
+	position: absolute;
+	top: calc(76px + var(--section-gallery-safe-top));
+	right: auto;
+	left: max(16px, var(--section-gallery-safe-left));
+	z-index: 6;
+	width: fit-content;
+	max-width: min(76vw, 460px);
+	padding: 7px 13px;
+	margin: 0;
+	overflow-wrap: anywhere;
+	color: var(--section-gallery-lightbox-ui-text);
+	background: var(--section-gallery-lightbox-ui-surface-strong);
+	border: 1px solid var(--section-gallery-lightbox-ui-border);
+	border-radius: 999px;
+	box-shadow: 0 4px 18px rgb(0 0 0 / 32%);
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-normal);
+	line-height: 1.25;
+	opacity: 0;
+	transform: translateY(-6px);
+	transition:
+		opacity 140ms ease-out,
+		transform 180ms ease-out;
+	pointer-events: none;
+	backdrop-filter: blur(12px);
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-section-toast.is-visible {
+	opacity: 1;
+	transform: translateY(0);
+}
+
+body.mod-macos:not(.is-fullscreen):not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-section-toast {
+	top: calc(var(--titlebar-height, 30px) + 76px);
+}
+
+.modal.section-gallery-lightbox .section-gallery-lightbox-ui {
+	opacity: 1;
+	transition: var(
+		--section-gallery-ui-transition,
+		opacity 160ms ease-out
+	);
+}
+
+.modal.section-gallery-lightbox.is-ui-hidden .section-gallery-lightbox-ui {
+	opacity: 0;
+	pointer-events: none;
+}
+
+.modal.section-gallery-lightbox.is-viewport-resizing
+	.section-gallery-lightbox-stage,
+.modal.section-gallery-lightbox.is-viewport-resizing
+	.section-gallery-lightbox-ui,
+.modal.section-gallery-lightbox.is-viewport-resizing
+	.section-gallery-lightbox-stage
+	> .section-gallery-lightbox-media,
+.modal.section-gallery-lightbox.is-viewport-resizing
+	.section-gallery-lightbox-stage
+	> .section-gallery-lightbox-scrub-preview,
+.modal.section-gallery-lightbox.is-viewport-resizing
+	.section-gallery-lightbox-stage
+	> .section-gallery-lightbox-scrub-placeholder,
+.modal.section-gallery-lightbox.is-viewport-resizing
+	.section-gallery-lightbox-page-preview {
+	transition: none;
+}
+
+.modal.section-gallery-lightbox.is-viewport-resizing
+	.section-gallery-lightbox-stage
+	> .section-gallery-lightbox-media,
+.modal.section-gallery-lightbox.is-viewport-resizing
+	.section-gallery-lightbox-stage
+	> .section-gallery-lightbox-scrub-preview,
+.modal.section-gallery-lightbox.is-viewport-resizing
+	.section-gallery-lightbox-stage
+	> .section-gallery-lightbox-scrub-placeholder {
+	translate: 0 0;
+}
+
+.modal.section-gallery-lightbox.is-viewport-resizing
+	.section-gallery-lightbox-page-preview {
+	visibility: hidden;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-stage.section-gallery-lightbox-rotation-freeze {
+	z-index: 2;
+	background: var(--section-gallery-lightbox-canvas-background);
+	opacity: 1;
+	pointer-events: auto;
+	transition: none;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-rotation-freeze.is-revealing {
+	opacity: 0;
+	transition: opacity 115ms ease-out;
+	will-change: opacity;
+	pointer-events: none;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-rotation-freeze-media {
+	display: block;
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	max-width: 100%;
+	max-height: 100%;
+	object-fit: contain;
+	user-select: none;
+	-webkit-user-drag: none;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-rotation-freeze-placeholder {
+	display: grid;
+	max-width: min(80%, 420px);
+	padding: 22px 28px;
+	place-items: center;
+	gap: 12px;
+	border-radius: 16px;
+	text-align: center;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-rotation-freeze-icon
+	svg {
+	width: 32px;
+	height: 32px;
+}
+
+.modal.section-gallery-lightbox
+	.section-gallery-lightbox-rotation-freeze-name {
+	max-width: 100%;
+	overflow: hidden;
+	font-size: var(--font-ui-small);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.modal.section-gallery-lightbox.is-viewport-resizing
+	.section-gallery-lightbox-stage.section-gallery-lightbox-rotation-freeze {
+	opacity: 1;
+	pointer-events: auto;
+	transition: none;
+}
+
+@keyframes section-gallery-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.section-gallery-view .section-gallery-section-header:hover {
+		background: var(--background-modifier-hover);
+	}
+
+	.section-gallery-view
+		.section-gallery-section-header:hover
+		.section-gallery-section-title {
+		color: var(--nav-item-color-hover, var(--text-normal));
+	}
+
+	.section-gallery-view .section-gallery-tile:hover {
+		background: var(--background-modifier-hover);
+		box-shadow: none;
+		transform: none;
+	}
+
+	.section-gallery-view .section-gallery-tile.is-search-match:hover {
+		box-shadow: inset 0 0 0 2px
+			var(--background-modifier-border-focus);
+	}
+
+	.modal.section-gallery-lightbox .section-gallery-filmstrip-item:hover {
+		background: transparent;
+	}
+
+	.modal.section-gallery-lightbox button:hover {
+		color: var(--section-gallery-lightbox-ui-text);
+		background: var(--section-gallery-lightbox-ui-hover);
+		box-shadow: none;
+		transform: none;
+	}
+}
+
+body:not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-reveal {
+	display: none;
+}
+
+body:not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-header {
+	top: 6px;
+	right: 6px;
+	left: 6px;
+	display: flex;
+	min-height: 36px;
+	padding: 0 44px;
+	align-items: flex-start;
+	justify-content: center;
+	gap: 0;
+	pointer-events: none;
+}
+
+body:not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-title-block {
+	width: min(70vw, 760px);
+	max-width: 100%;
+	padding: 0;
+	background: transparent;
+	border-radius: 0;
+	pointer-events: none;
+	backdrop-filter: none;
+}
+
+body:not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-close {
+	--icon-size: 18px;
+
+	position: absolute;
+	top: 0;
+	right: 0;
+	width: 36px;
+	height: 36px;
+	min-width: 36px;
+	color: var(--section-gallery-lightbox-ui-text);
+	background: transparent;
+	border: 0;
+	border-radius: var(--radius-s);
+	box-shadow: none;
+	pointer-events: auto;
+	backdrop-filter: none;
+}
+
+body:not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-close:hover {
+	color: var(--section-gallery-lightbox-ui-text);
+	background: transparent;
+	box-shadow: none;
+	transform: none;
+}
+
+body:not(.is-mobile)
+	.modal.section-gallery-lightbox.is-ui-hidden
+	.section-gallery-lightbox-close {
+	pointer-events: none;
+}
+
+body.mod-macos:not(.is-fullscreen):not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-header {
+	top: 6px;
+}
+
+body.is-mobile .section-gallery-view {
+	--section-gallery-mobile-background: var(
+		--mobile-sidebar-background,
+		var(--background-primary)
+	);
+
+	background-color: var(--section-gallery-mobile-background);
+}
+
+body.is-mobile .section-gallery-view .section-gallery-summary {
+	position: static;
+	padding: var(--size-4-1) var(--size-4-4) 0;
+	background-color: var(--section-gallery-mobile-background);
+}
+
+body.is-mobile .section-gallery-view .section-gallery-toolbar {
+	display: grid;
+	width: 100%;
+	padding: var(--size-4-1) 0 var(--size-4-2);
+	align-items: center;
+	gap: var(--size-4-1);
+	grid-template-columns:
+		minmax(0, 1fr) repeat(4, var(--touch-size-m))
+		minmax(min-content, 1fr);
+	--icon-size: var(--icon-l);
+	--icon-stroke: var(--icon-l-stroke-width);
+}
+
+body.is-mobile .section-gallery-view .section-gallery-toolbar-button {
+	width: var(--touch-size-m);
+	height: var(--touch-size-m);
+	min-width: var(--touch-size-m);
+	padding: var(--size-4-2);
+}
+
+body.is-mobile
+	.section-gallery-view
+	.section-gallery-search-button {
+	grid-column: 2;
+}
+
+body.is-mobile
+	.section-gallery-view
+	.section-gallery-section-toggle-button {
+	grid-column: 3;
+}
+
+body.is-mobile
+	.section-gallery-view
+	.section-gallery-filter-button {
+	grid-column: 4;
+}
+
+body.is-mobile
+	.section-gallery-view
+	.section-gallery-layout-button {
+	grid-column: 5;
+}
+
+body.is-mobile .section-gallery-view .section-gallery-count {
+	position: relative;
+	top: auto;
+	inset-inline-end: auto;
+	z-index: 1;
+	display: flex;
+	min-width: 3ch;
+	height: var(--touch-size-m);
+	margin: 0;
+	align-items: center;
+	justify-content: center;
+	justify-self: center;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	grid-column: 6;
+	line-height: 1;
+	text-align: center;
+	transform: none;
+}
+
+/* Hide only the persistent last-viewed ring on touch layouts. Hardware
+   keyboard/Switch Control focus and search-result highlighting stay visible. */
+body.is-mobile
+	.section-gallery-view
+	.section-gallery-tile.is-last-viewed:not(:focus-visible) {
+	outline: 0;
+}
+
+body.is-mobile
+	.section-gallery-view
+	.section-gallery-search-button[aria-expanded='true']:not(:active) {
+	color: var(--icon-color, var(--text-muted));
+	background-color: transparent;
+	box-shadow: none;
+	transform: none;
+}
+
+body.is-mobile .section-gallery-view .section-gallery-search-row {
+	padding: 0 0 var(--size-4-2);
+}
+
+body.is-phone.is-floating-nav
+	.workspace-drawer
+	.section-gallery-view
+	.section-gallery-search-row {
+	position: relative;
+	z-index: 1;
+	background-color: var(--section-gallery-mobile-background);
+}
+
+body.is-mobile .section-gallery-view .section-gallery-content {
+	padding-bottom: calc(
+		var(--touch-size-m) + var(--size-4-1) + var(--size-4-2)
+	);
+	background-color: var(--section-gallery-mobile-background);
+}
+
+body.is-phone.is-floating-nav
+	.workspace-drawer
+	.section-gallery-view
+	.section-gallery-toolbar::after {
+	position: absolute;
+	top: auto;
+	right: calc(-1 * var(--size-4-4));
+	bottom: 0;
+	left: calc(-1 * var(--size-4-4));
+	z-index: 0;
+	width: auto;
+	height: 168px;
+	margin: 0;
+	background: linear-gradient(
+		to top,
+		var(--section-gallery-mobile-background) 0,
+		var(--section-gallery-mobile-background) 30%,
+		transparent 100%
+	);
+	content: '';
+	pointer-events: none;
+}
+
+body.is-mobile .modal.section-gallery-lightbox {
+	--section-gallery-mobile-button-color: rgb(248 248 250 / 94%);
+	--section-gallery-mobile-button-background: rgb(58 58 60 / 88%);
+	--section-gallery-mobile-button-background-pressed: rgb(72 72 75 / 94%);
+	--section-gallery-mobile-button-border: rgb(255 255 255 / 10%);
+	--section-gallery-mobile-button-shadow:
+		0 1px 2px rgb(0 0 0 / 48%), 0 6px 18px rgb(0 0 0 / 28%),
+		inset 0 1px 0 rgb(255 255 255 / 9%);
+	--section-gallery-mobile-button-shadow-pressed:
+		0 1px 2px rgb(0 0 0 / 42%), 0 3px 10px rgb(0 0 0 / 24%),
+		inset 0 1px 0 rgb(255 255 255 / 7%);
+}
+
+body.is-mobile
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-title-block {
+	background: transparent;
+	box-shadow: none;
+	-webkit-backdrop-filter: none;
+	backdrop-filter: none;
+}
+
+body.is-mobile
+	.modal.section-gallery-lightbox
+	:is(
+		.section-gallery-lightbox-header,
+		.section-gallery-lightbox-footer
+	)
+	> button {
+	box-sizing: border-box;
+	color: var(--section-gallery-mobile-button-color);
+	background: var(--section-gallery-mobile-button-background);
+	border: 1px solid var(--section-gallery-mobile-button-border);
+	box-shadow: var(--section-gallery-mobile-button-shadow);
+	transition:
+		background-color 120ms ease-out,
+		border-color 120ms ease-out,
+		box-shadow 120ms ease-out,
+		transform 120ms ease-out;
+	-webkit-backdrop-filter: saturate(140%) blur(18px);
+	backdrop-filter: saturate(140%) blur(18px);
+}
+
+body.is-mobile
+	.modal.section-gallery-lightbox
+	:is(
+		.section-gallery-lightbox-header,
+		.section-gallery-lightbox-footer
+	)
+	> button:focus:not(:focus-visible) {
+	box-shadow: var(--section-gallery-mobile-button-shadow);
+}
+
+body.is-mobile
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-info-button:is(
+		.is-active,
+		[aria-expanded='true'],
+		[aria-pressed='true']
+	) {
+	color: var(--section-gallery-lightbox-ui-active-text);
+	background: var(--section-gallery-lightbox-ui-active-surface);
+	box-shadow: var(--section-gallery-mobile-button-shadow);
+}
+
+body.is-mobile
+	.modal.section-gallery-lightbox
+	:is(
+		.section-gallery-lightbox-header,
+		.section-gallery-lightbox-footer
+	)
+	> button:active {
+	background: var(--section-gallery-mobile-button-background-pressed);
+	box-shadow: var(--section-gallery-mobile-button-shadow-pressed);
+	transform: scale(0.96);
+}
+
+body.theme-light.is-mobile .modal.section-gallery-lightbox {
+	--section-gallery-lightbox-ui-panel: var(--background-primary);
+	--section-gallery-mobile-button-color: var(--text-normal);
+	--section-gallery-mobile-button-background: color-mix(
+		in srgb,
+		var(--background-primary) 94%,
+		transparent
+	);
+	--section-gallery-mobile-button-background-pressed: color-mix(
+		in srgb,
+		var(--background-primary) 84%,
+		var(--text-normal) 16%
+	);
+	--section-gallery-mobile-button-border: color-mix(
+		in srgb,
+		var(--text-normal) 10%,
+		transparent
+	);
+	--section-gallery-mobile-button-shadow:
+		0 1px 2px rgb(0 0 0 / 16%), 0 6px 18px rgb(0 0 0 / 14%),
+		inset 0 1px 0 rgb(255 255 255 / 68%);
+	--section-gallery-mobile-button-shadow-pressed:
+		0 1px 2px rgb(0 0 0 / 14%), 0 3px 10px rgb(0 0 0 / 12%),
+		inset 0 1px 0 rgb(255 255 255 / 48%);
+}
+
+body.theme-light.is-mobile
+	.modal.section-gallery-lightbox.is-info-open {
+	--section-gallery-lightbox-canvas-background: var(--background-secondary);
+}
+
+body.theme-light.is-mobile
+	.modal.section-gallery-lightbox.is-info-open
+	.section-gallery-lightbox-header {
+	--section-gallery-mobile-button-background: color-mix(
+		in srgb,
+		var(--background-secondary) 94%,
+		transparent
+	);
+	--section-gallery-mobile-button-background-pressed: color-mix(
+		in srgb,
+		var(--background-secondary) 84%,
+		var(--text-normal) 16%
+	);
+}
+
+/* A symmetric chrome reserve preserves the safe-area center when chrome is
+   hidden. A width-limited image then stays put instead of dropping downward. */
+body.is-mobile .modal.section-gallery-lightbox .section-gallery-lightbox-stage {
+	padding-top: calc(132px + var(--section-gallery-safe-top));
+	padding-bottom: calc(132px + var(--section-gallery-safe-bottom));
+}
+
+body.is-mobile
+	.modal.section-gallery-lightbox.is-info-open
+	.section-gallery-lightbox-stage {
+	padding-top: calc(82px + var(--section-gallery-safe-top));
+	padding-bottom: calc(82px + var(--section-gallery-safe-bottom));
+}
+
+/* ResizeObserver publishes the stage's content box through chrome/safe-area
+   transitions. Keep each element's actual box at its painted aspect ratio:
+   zoom anchors and native video controls must not see a letterboxed full box. */
+body.is-mobile .modal.section-gallery-lightbox
+	.section-gallery-lightbox-content.has-mobile-fit-bounds :is(
+	.section-gallery-lightbox-media,
+	.section-gallery-lightbox-scrub-preview,
+	.section-gallery-lightbox-page-preview-media,
+	.section-gallery-lightbox-rotation-freeze-media
+).has-fit-ratio {
+	width: min(
+		var(--section-gallery-media-fit-width),
+		calc(var(--section-gallery-media-fit-height) * var(--section-gallery-media-ratio))
+	);
+	height: auto;
+	aspect-ratio: var(--section-gallery-media-ratio);
+	flex-shrink: 0;
+}
+
+body.is-mobile .modal.section-gallery-lightbox .section-gallery-lightbox-header {
+	top: max(2px, calc(var(--section-gallery-safe-top) - 8px));
+	right: max(10px, var(--section-gallery-safe-right));
+	left: max(10px, var(--section-gallery-safe-left));
+	gap: 7px;
+}
+
+body.is-phone .modal.section-gallery-lightbox .section-gallery-lightbox-bottom {
+	right: max(8px, var(--section-gallery-safe-right));
+	left: max(8px, var(--section-gallery-safe-left));
+}
+
+body.is-phone
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-filmstrip-viewport {
+	--section-gallery-filmstrip-item-width: 24px;
+	--section-gallery-filmstrip-item-current-width: 58px;
+	--section-gallery-filmstrip-item-height: 44px;
+	--section-gallery-filmstrip-thumbnail-current-inset-inline: 10px;
+	--section-gallery-filmstrip-thumbnail-radius: 4px;
+}
+
+body.is-phone
+	.modal.section-gallery-lightbox
+	.section-gallery-filmstrip-separator {
+	height: 34px;
+	margin-right: 12px;
+	margin-left: 12px;
+}
+
+body.is-phone .modal.section-gallery-lightbox .section-gallery-lightbox-footer {
+	right: max(8px, var(--section-gallery-safe-right));
+	left: max(8px, var(--section-gallery-safe-left));
+}
+
+@media (max-height: 560px) {
+	.modal.section-gallery-lightbox {
+		--section-gallery-info-height: min(34dvh, 150px);
+	}
+
+	.modal.section-gallery-lightbox .section-gallery-lightbox-stage,
+	.modal.section-gallery-lightbox.is-info-open
+		.section-gallery-lightbox-stage {
+		padding-top: calc(54px + var(--section-gallery-safe-top));
+		padding-bottom: calc(86px + var(--section-gallery-safe-bottom));
+	}
+
+	.modal.section-gallery-lightbox .section-gallery-lightbox-header {
+		top: calc(2px + var(--section-gallery-safe-top));
+	}
+
+	.modal.section-gallery-lightbox .section-gallery-lightbox-info-scroll {
+		padding-top: 6px;
+	}
+
+	.modal.section-gallery-lightbox .section-gallery-lightbox-info-list dt,
+	.modal.section-gallery-lightbox .section-gallery-lightbox-info-list dd {
+		padding-top: 4px;
+		padding-bottom: 4px;
+	}
+}
+
+@media (orientation: landscape) and (max-height: 560px) {
+	body.is-mobile .modal.section-gallery-lightbox {
+		--section-gallery-landscape-edge-gap: 8px;
+		--section-gallery-landscape-header-height: 54px;
+		--section-gallery-landscape-filmstrip-height: 54px;
+		--section-gallery-landscape-header-top: calc(
+			var(--section-gallery-landscape-edge-gap) +
+				var(--section-gallery-safe-top)
+		);
+		--section-gallery-info-pane-width: clamp(248px, 32vw, 340px);
+		--section-gallery-info-pane-offset: calc(
+			var(--section-gallery-info-pane-width) + var(--section-gallery-safe-left)
+		);
+		--section-gallery-landscape-filmstrip-bottom: calc(
+			44px + 2 * var(--section-gallery-landscape-edge-gap) +
+				var(--section-gallery-safe-bottom)
+		);
+		--section-gallery-landscape-footer-bottom: calc(
+			var(--section-gallery-landscape-edge-gap) +
+				var(--section-gallery-safe-bottom)
+		);
+		--section-gallery-landscape-stage-top: calc(
+			var(--section-gallery-landscape-header-top) +
+				var(--section-gallery-landscape-header-height) +
+				var(--section-gallery-landscape-edge-gap)
+		);
+		--section-gallery-landscape-stage-bottom: calc(
+			var(--section-gallery-landscape-filmstrip-bottom) +
+				var(--section-gallery-landscape-filmstrip-height) +
+				var(--section-gallery-landscape-edge-gap)
+		);
+	}
+
+	body.is-phone .modal.section-gallery-lightbox {
+		--section-gallery-landscape-filmstrip-height: 50px;
+	}
+
+	body.is-mobile
+		.modal.section-gallery-lightbox
+		.section-gallery-lightbox-stage {
+		padding-top: var(--section-gallery-landscape-stage-top);
+		padding-right: max(4px, var(--section-gallery-safe-right));
+		padding-bottom: var(--section-gallery-landscape-stage-bottom);
+		padding-left: max(8px, var(--section-gallery-safe-left));
+	}
+
+	body.is-mobile
+		.modal.section-gallery-lightbox
+		.section-gallery-lightbox-header {
+		top: var(--section-gallery-landscape-header-top);
+		right: max(4px, calc(var(--section-gallery-safe-right) - 12px));
+		left: max(8px, var(--section-gallery-safe-left));
+	}
+
+	body.is-mobile
+		.modal.section-gallery-lightbox
+		.section-gallery-lightbox-bottom {
+		right: max(4px, var(--section-gallery-safe-right));
+		bottom: var(--section-gallery-landscape-filmstrip-bottom);
+		left: max(8px, var(--section-gallery-safe-left));
+	}
+
+	body.is-mobile
+		.modal.section-gallery-lightbox
+		.section-gallery-lightbox-footer {
+		right: max(4px, calc(var(--section-gallery-safe-right) - 12px));
+		bottom: var(--section-gallery-landscape-footer-bottom);
+		left: max(8px, var(--section-gallery-safe-left));
+	}
+
+	body.theme-light.is-mobile
+		.modal.section-gallery-lightbox.is-info-open
+		.section-gallery-lightbox-share {
+		--section-gallery-mobile-button-background: color-mix(
+			in srgb,
+			var(--background-secondary) 94%,
+			transparent
+		);
+		--section-gallery-mobile-button-background-pressed: color-mix(
+			in srgb,
+			var(--background-secondary) 84%,
+			var(--text-normal) 16%
+		);
+	}
+
+	body.is-mobile
+		.modal.section-gallery-lightbox
+		.section-gallery-lightbox-info-panel {
+		top: 0;
+		right: auto;
+		bottom: 0;
+		left: 0;
+		width: var(--section-gallery-info-pane-offset);
+		height: auto;
+		border-top: 0;
+		border-right: 1px solid var(--section-gallery-lightbox-ui-border);
+		transform: translateX(-100%);
+	}
+
+	body.is-mobile
+		.modal.section-gallery-lightbox.is-info-open
+		.section-gallery-lightbox-info-panel {
+		transform: translateX(0);
+	}
+
+	body.is-mobile
+		.modal.section-gallery-lightbox
+		.section-gallery-lightbox-info-scroll {
+		display: flex;
+		bottom: calc(52px + var(--section-gallery-safe-bottom));
+		padding: calc(8px + var(--section-gallery-safe-top)) 16px 8px
+			max(16px, var(--section-gallery-safe-left));
+		flex-direction: column;
+	}
+
+	body.is-mobile
+		.modal.section-gallery-lightbox
+		.section-gallery-lightbox-info-content {
+		width: 100%;
+		margin-block: auto;
+		margin-inline: 0;
+		flex: 0 0 auto;
+	}
+
+	body.is-mobile
+		.modal.section-gallery-lightbox.is-info-open
+		.section-gallery-lightbox-stage {
+		bottom: 0;
+		left: var(--section-gallery-info-pane-offset);
+		padding-top: var(--section-gallery-landscape-stage-top);
+		padding-right: max(4px, var(--section-gallery-safe-right));
+		padding-bottom: var(--section-gallery-landscape-stage-bottom);
+		padding-left: 8px;
+	}
+
+	body.is-mobile
+		.modal.section-gallery-lightbox.is-info-open
+		.section-gallery-lightbox-header {
+		left: calc(var(--section-gallery-info-pane-offset) + 8px);
+	}
+
+	body.is-mobile
+		.modal.section-gallery-lightbox.is-info-open
+		.section-gallery-lightbox-bottom {
+		bottom: var(--section-gallery-landscape-filmstrip-bottom);
+		left: calc(var(--section-gallery-info-pane-offset) + 8px);
+	}
+
+	body.is-mobile
+		.modal.section-gallery-lightbox.is-info-open
+		.section-gallery-lightbox-section-toast {
+		left: calc(var(--section-gallery-info-pane-offset) + 16px);
+		max-width: calc(
+			100vw - var(--section-gallery-info-pane-offset) - 32px -
+				var(--section-gallery-safe-right)
+		);
+	}
+}
+
+@media (orientation: portrait) and (max-height: 560px) {
+	/* Compact portrait WebViews need the same stable center as taller phones. */
+	body.is-mobile .modal.section-gallery-lightbox .section-gallery-lightbox-stage,
+	body.is-mobile .modal.section-gallery-lightbox.is-info-open .section-gallery-lightbox-stage {
+		padding-top: calc(86px + var(--section-gallery-safe-top));
+		padding-bottom: calc(86px + var(--section-gallery-safe-bottom));
+	}
+}
+
+/* Full-bleed content when chrome is hidden; keep the original ratio and the
+   same horizontal bounds, so a width-limited landscape image does not jump. */
+body .modal.section-gallery-lightbox.is-ui-hidden .section-gallery-lightbox-stage {
+	bottom: 0;
+	left: 0;
+	padding-top: var(--section-gallery-safe-top);
+	padding-bottom: var(--section-gallery-safe-bottom);
+	padding-left: max(8px, var(--section-gallery-safe-left));
+}
+
+@media (orientation: portrait) {
+	/* With metadata open, keep the same center rather than moving the image
+	   down into the freed panel. Removing equal chrome reserves gives the
+	   largest symmetric contain rectangle around that existing center. */
+	body.is-mobile .modal.section-gallery-lightbox.is-info-open.is-ui-hidden
+		.section-gallery-lightbox-stage {
+		bottom: var(--section-gallery-info-height);
+	}
+}
+
+/* Android status/navigation bars may occupy any edge after rotation. Never
+   apply the iOS notch reductions to Android controls. */
+body.is-android .modal.section-gallery-lightbox .section-gallery-lightbox-header {
+	top: calc(8px + var(--section-gallery-safe-top));
+	right: max(8px, var(--section-gallery-safe-right));
+	left: max(8px, var(--section-gallery-safe-left));
+}
+
+body.is-android .modal.section-gallery-lightbox .section-gallery-lightbox-footer {
+	right: max(8px, var(--section-gallery-safe-right));
+	left: max(8px, var(--section-gallery-safe-left));
+}
+
+@media (orientation: landscape) and (max-height: 560px) {
+	body.is-android .modal.section-gallery-lightbox.is-info-open .section-gallery-lightbox-header {
+		left: calc(var(--section-gallery-info-pane-offset) + 8px);
+	}
+}
+
+.section-gallery-safe-area-probe {
+	--section-gallery-build-version: 0.9.2;
+
+	position: fixed;
+	visibility: hidden;
+	pointer-events: none;
+	padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+}
+
+.section-gallery-diagnostics-report {
+	width: 100%;
+	min-height: 240px;
+	max-height: 55vh;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	resize: vertical;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.section-gallery-view .section-gallery-section-chevron,
+	.section-gallery-view .section-gallery-thumbnail,
+	.modal.section-gallery-lightbox button,
+	.modal.section-gallery-lightbox
+		.section-gallery-lightbox-info-button
+		svg
+		circle,
+	.modal.section-gallery-lightbox .section-gallery-filmstrip-item,
+	.modal.section-gallery-lightbox .section-gallery-filmstrip-thumbnail,
+	.modal.section-gallery-lightbox .section-gallery-filmstrip-play-badge,
+	.modal.section-gallery-lightbox .section-gallery-lightbox-stage,
+	.modal.section-gallery-lightbox
+		.section-gallery-lightbox-stage
+		> .section-gallery-lightbox-media,
+	.modal.section-gallery-lightbox
+		.section-gallery-lightbox-stage
+		> .section-gallery-lightbox-scrub-preview,
+	.modal.section-gallery-lightbox
+		.section-gallery-lightbox-stage
+		> .section-gallery-lightbox-scrub-placeholder,
+	.modal.section-gallery-lightbox
+		.section-gallery-lightbox-page-preview,
+	.modal.section-gallery-lightbox
+		.section-gallery-lightbox-rotation-freeze.is-revealing,
+	.modal.section-gallery-lightbox .section-gallery-lightbox-bottom,
+	.modal.section-gallery-lightbox .section-gallery-lightbox-info-panel,
+	.modal.section-gallery-lightbox .section-gallery-lightbox-ui,
+	.modal.section-gallery-lightbox .section-gallery-lightbox-section-toast {
+		transition: none;
+	}
+
+	.modal.section-gallery-lightbox
+		.section-gallery-lightbox-share.is-preparing
+		svg {
+		animation: none;
+	}
+
+	.modal.section-gallery-lightbox .section-gallery-lightbox-filmstrip-scroller {
+		scroll-behavior: auto;
+	}
+
+	.modal.section-gallery-lightbox
+		.section-gallery-lightbox-stage.is-page-settling
+		> .section-gallery-lightbox-media,
+	.modal.section-gallery-lightbox
+		.section-gallery-lightbox-stage.is-page-settling
+		> .section-gallery-lightbox-scrub-preview,
+	.modal.section-gallery-lightbox
+		.section-gallery-lightbox-stage.is-page-settling
+		> .section-gallery-lightbox-scrub-placeholder,
+	.modal.section-gallery-lightbox
+		.section-gallery-lightbox-stage.is-page-settling
+		> .section-gallery-lightbox-page-preview {
+		transition: none;
+	}
+}
+
+.section-gallery-screen-reader-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* Keep the current section in view using the actual, interactive summary.
+   Nested summaries share one sticky row: the deepest visible section replaces
+   its ancestor instead of accumulating up to six rows above the media. */
+.section-gallery-view .section-gallery-content {
+	isolation: isolate;
+	scroll-padding-block-start: max(30px, 2em);
+}
+
+.section-gallery-view .section-gallery-section-header {
+	position: sticky;
+	inset-block-start: 0;
+	z-index: 2;
+	background-color: var(--section-gallery-sticky-background, var(--background-secondary));
+	border-radius: 0;
+}
+
+body.is-mobile .section-gallery-view {
+	--section-gallery-sticky-background: var(--section-gallery-mobile-background);
+}
+
+/* The floating phone drawer adds 8px above its last nav-header sibling.
+   Sticky summaries adhere to that padded edge, leaving a visible gap. Keep
+   the drawer's outer safe area and bottom controls; remove only this inset. */
+body.is-mobile.is-floating-nav.is-phone
+	.workspace-drawer
+	.workspace-leaf-content.section-gallery-view
+	.nav-header ~ div.section-gallery-content:last-child {
+	padding-top: 0;
+}
+
+/* On phones the toolbar is absolutely positioned at the bottom. With search
+   closed its otherwise empty wrapper must not reserve another 4px at top. */
+body.is-mobile.is-phone
+	.workspace-drawer
+	.section-gallery-view:not(.is-search-open)
+	.section-gallery-summary {
+	padding-top: 0;
+}
+
+.section-gallery-view .section-gallery-section-header.is-search-match {
+	background-color: var(--section-gallery-sticky-background, var(--background-secondary));
+	background-image: linear-gradient(var(--background-modifier-hover), var(--background-modifier-hover));
+}
+
+/* Keep the observed image's geometry while iOS paints a native still. The
+   fallback must not steal a tile tap or a filmstrip drag from its button. */
+.section-gallery-view img.section-gallery-native-preview-anchor,
+.section-gallery-lightbox img.section-gallery-native-preview-anchor {
+	opacity: 0 !important;
+}
+
+.section-gallery-view video.section-gallery-native-video-preview,
+.section-gallery-lightbox video.section-gallery-native-video-preview {
+	pointer-events: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.section-gallery-view .section-gallery-section-header:hover {
+		background-color: var(--section-gallery-sticky-background, var(--background-secondary));
+		background-image: linear-gradient(var(--background-modifier-hover), var(--background-modifier-hover));
+	}
+}

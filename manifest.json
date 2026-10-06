@@ -1,0 +1,9 @@
+{
+	"id": "section-gallery",
+	"name": "Gallery",
+	"version": "0.9.2",
+	"minAppVersion": "1.13.4",
+	"description": "Browse images and videos from the active note, grouped by section, in a fast sidebar gallery.",
+	"author": "ambinder",
+	"isDesktopOnly": false
+}

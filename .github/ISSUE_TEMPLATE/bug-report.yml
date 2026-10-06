@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a reproducible Gallery problem.
+body:
+  - type: input
+    id: versions
+    attributes:
+      label: Gallery and Obsidian versions
+      placeholder: Gallery 0.9.0, Obsidian 1.13.4
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and operating system
+      description: On Android, include gesture or three-button navigation; for desktop gestures, mouse or trackpad.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps, expected result and actual result
+      description: Include orientation, theme and whether the issue also occurs with CSS snippets disabled.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Optional diagnostic report or screen recording
+      description: Run Gallery's Show mobile diagnostics command after reproducing. Review attachments before posting. Do not share private notes, media or credentials; use a synthetic example.

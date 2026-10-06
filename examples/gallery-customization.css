@@ -1,0 +1,13 @@
+/* Optional Obsidian snippet. Copy into your configured snippets folder and
+   enable it in Appearance. Gallery does not install or activate it itself. */
+body .section-gallery-view {
+	--section-gallery-gap: 4px;
+	--section-gallery-radius: 8px;
+	--section-gallery-fit-inset: 5px;
+}
+
+/* Optional rollback for sticky headings: uncomment to restore scrolling rows.
+body .section-gallery-view .section-gallery-section-header {
+	position: static;
+}
+*/

@@ -1,0 +1,40 @@
+name: Release Obsidian plugin
+
+on:
+  push:
+    tags:
+      - '[0-9]*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Use Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Build and verify plugin
+        run: |
+          npm ci
+          npm run release:prepare
+      - name: Verify tag matches manifest
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: test "$RELEASE_TAG" = "$(node -p "require('./manifest.json').version")"
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/${{ github.ref_name }}/main.js
+            dist/${{ github.ref_name }}/styles.css
+            dist/${{ github.ref_name }}/manifest.json
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --draft "dist/$GITHUB_REF_NAME/main.js" "dist/$GITHUB_REF_NAME/manifest.json" "dist/$GITHUB_REF_NAME/styles.css"

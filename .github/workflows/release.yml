@@ -1,9 +1,18 @@
 name: Release Obsidian plugin
 
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version from manifest.json, without a v prefix
+        required: true
+        type: string
   push:
     tags:
       - '[0-9]*'
+
+env:
+  RELEASE_TAG: ${{ inputs.version || github.ref_name }}
 
 jobs:
   release:
@@ -24,17 +33,20 @@ jobs:
           npm ci
           npm run release:prepare
       - name: Verify tag matches manifest
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: test "$RELEASE_TAG" = "$(node -p "require('./manifest.json').version")"
       - name: Attest build provenance
         uses: actions/attest@v4
         with:
           subject-path: |
-            dist/${{ github.ref_name }}/main.js
-            dist/${{ github.ref_name }}/styles.css
-            dist/${{ github.ref_name }}/manifest.json
+            dist/${{ env.RELEASE_TAG }}/main.js
+            dist/${{ env.RELEASE_TAG }}/styles.css
+            dist/${{ env.RELEASE_TAG }}/manifest.json
       - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --draft "dist/$GITHUB_REF_NAME/main.js" "dist/$GITHUB_REF_NAME/manifest.json" "dist/$GITHUB_REF_NAME/styles.css"
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; leaving its assets unchanged."
+          else
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$RELEASE_TAG" --draft "dist/$RELEASE_TAG/main.js" "dist/$RELEASE_TAG/manifest.json" "dist/$RELEASE_TAG/styles.css"
+          fi

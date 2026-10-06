@@ -2,6 +2,10 @@
 
 Browse images and videos from your active note in a searchable sidebar and a full-window viewer. Gallery works on desktop, iOS, and Android.
 
+![Gallery sidebar with image and video thumbnails](https://raw.githubusercontent.com/theambinder/obsidian-gallery/main/docs/images/gallery-sidebar.png)
+
+![Gallery full-window viewer with the thumbnail carousel](https://raw.githubusercontent.com/theambinder/obsidian-gallery/main/docs/images/gallery-viewer.png)
+
 ## Features
 
 - Browse local images and videos from the active note.
@@ -130,3 +134,7 @@ See [release preparation](docs/RELEASING.md) for the public-source checklist, Gi
 ## License
 
 [MIT](LICENSE)
+
+## Support
+
+<a href="https://buymeacoffee.com/ambinder"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="60"></a>

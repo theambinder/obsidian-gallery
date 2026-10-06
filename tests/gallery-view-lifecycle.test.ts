@@ -24,6 +24,7 @@ interface TestTile {
 }
 
 interface TestGalleryView {
+	app: { metadataCache: { getFileCache(note: object): object | null } };
 	containerEl: object;
 	contentEl: object;
 	currentNotePath: string | null;
@@ -47,6 +48,7 @@ interface TestGalleryView {
 	setTileScale(value: number): void;
 	refreshVisibleMedia(): void;
 	refresh(): void;
+	renderEmptyState(message: string): void;
 	setupResizeHandling(): void;
 	updateKeyboardFocusState(): void;
 	scheduleKeyboardFocusState(): void;
@@ -214,6 +216,27 @@ class RenderElement {
 	createSpan(options: { cls?: string; text?: string } = {}): RenderElement { return this.createNode(options); }
 	createDiv(options: { cls?: string } = {}): RenderElement { return this.createNode(options); }
 }
+
+void test('pending note metadata uses plain-language loading copy and deduplicates refreshes', async () => {
+	const note = { path: 'pending.md' };
+	const { view } = await createView({ getActiveNote: () => note });
+	const messages: string[] = [];
+	view.app = {
+		metadataCache: {
+			getFileCache(file): null {
+				assert.equal(file, note);
+				return null;
+			},
+		},
+	};
+	view.renderEmptyState = (message) => { messages.push(message); };
+	view.refresh();
+	assert.deepEqual(messages, ['Gallery is waiting for this note to finish loading.']);
+	const revision = view.renderRevision;
+	view.refresh();
+	assert.equal(view.renderRevision, revision);
+	assert.equal(messages.length, 1, 'unchanged pending metadata does not render twice');
+});
 
 void test('tile scale changes only the scoped layout variable without rebuilding tiles', async () => {
 	const { view, css, pendingFrames } = await createView();

@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.9.5 - 2026-10-07
+
+### Changed
+
+- Clarify the message shown while a note is loading.
+- Simplify the plugin overview and improve usage, keyboard, and troubleshooting instructions.
+
 ## 0.9.4 - 2026-10-07
 
 ### Fixed

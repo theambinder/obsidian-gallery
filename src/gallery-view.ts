@@ -264,7 +264,7 @@ export class SectionGalleryView extends ItemView {
 		if (!cache) {
 			this.renderEmptyModel(
 				`index-pending:${note.path}`,
-				'The media index is not ready yet.',
+				'Gallery is waiting for this note to finish loading.',
 				force,
 			);
 			return;

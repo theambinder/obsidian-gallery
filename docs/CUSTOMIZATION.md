@@ -33,7 +33,7 @@ body .section-gallery-view .section-gallery-section-header {
 }
 ```
 
-The pinned header must keep an opaque theme-compatible surface to prevent overlapping labels. Use an equally specific mobile selector if customizing that surface on phones:
+The pinned heading must keep an opaque, theme-compatible background to prevent overlapping labels. Use an equally specific mobile selector if customizing that background on phones:
 
 ```css
 body.is-mobile .section-gallery-view {

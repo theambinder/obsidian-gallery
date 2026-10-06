@@ -1,4 +1,4 @@
-# Release preparation
+# Prepare a release
 
 ## Two different deliverables
 
@@ -11,7 +11,7 @@ The **GitHub release assets** contain only `main.js`, `manifest.json`, `styles.c
 - Confirm the MIT author/license, public name and plugin ID `gallery`. Keep the plugin ID stable after Community directory publication so existing installations receive updates.
 - Review the README capabilities and limitations. Include one or two screenshots made with your own or freely licensed sample media, not private notes or unlicensed film screenshots.
 - Complete a short real-device pass: macOS trackpad, Windows/Linux keyboard, iPhone portrait/landscape, Android navigation insets/video/share; default theme, light and dark. Browser tests do not certify native OS integration.
-- Check `minAppVersion` against the APIs used. Current minimum is1.13.4; declarative settings require1.13.0 or newer. Desktop Electron helpers are dynamically loaded only in desktop branches; the plugin does not require them on mobile.
+- Check `minAppVersion` against the APIs used. The minimum supported Obsidian version is 1.13.4. Declarative settings require Obsidian 1.13.0 or later. Desktop Electron helpers are dynamically loaded only in desktop branches; the plugin does not require them on mobile.
 - Android's native share/open bridge is feature-detected but not a public typed API. Recheck it after major Obsidian mobile updates and disclose this conditional behavior.
 - Prepare a support channel. This template uses GitHub Issues and private security advisories; enable private vulnerability reporting in the repository's settings.
 
@@ -33,6 +33,6 @@ Review exactly three generated assets. Preserve the previous release for rollbac
 3. Sign in at [Obsidian Community](https://community.obsidian.md), link your GitHub account, and submit the repository through **Plugins → New plugin**.
 4. Resolve the directory's scanner/review feedback. A local audit does not guarantee directory approval. Any changed code needs a new version/release.
 
-The directory reads the manifest from the default branch and installs assets from the matching release. These steps follow the [current submission guide](https://docs.obsidian.md/plugins/releasing/submit-plugin) and [account setup guide](https://docs.obsidian.md/community-directory/set-up-and-claim), checked September20,2026. Recheck them when publishing; old tutorials using a pull request to `community-plugins.json` may no longer describe the current process.
+The directory reads the manifest from the default branch and installs assets from the matching release. These steps follow the [current submission guide](https://docs.obsidian.md/plugins/releasing/submit-plugin) and [account setup guide](https://docs.obsidian.md/community-directory/set-up-and-claim), checked September 20, 2026. Recheck them when publishing; old tutorials using a pull request to `community-plugins.json` may no longer describe the current process.
 
 Relevant policy references: [developer policies](https://docs.obsidian.md/community-directory/developer-policies), [submission requirements](https://docs.obsidian.md/community-directory/submission-requirements-for-plugins), [manifest schema](https://docs.obsidian.md/Reference/Manifest), [plugin checklist](https://docs.obsidian.md/oo/plugin).

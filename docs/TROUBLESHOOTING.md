@@ -10,7 +10,7 @@ Run **Gallery: Show mobile diagnostics**. `buildVersion`, `manifestVersion`, and
 
 1. Reproduce the issue, including rotation or open metadata if relevant.
 2. Close the viewer. Its last geometry is preserved in memory.
-3. Run **Gallery: Show mobile diagnostics**, then explicitly copy the report or save its JSON into the vault.
+3. Run **Gallery: Show mobile diagnostics**, then select **Copy report** or **Save report to vault**.
 4. Include reproduction steps, device/OS/Obsidian version, theme, and a short screen recording. On Android, note whether navigation uses gestures or three buttons.
 
 The command is intentionally absent from regular settings: most users never need it. Reports contain device capabilities, dimensions, system insets and versions, but no filenames, media URLs, vault paths or note content. Nothing is sent automatically. Review anything you attach to a public issue; use a synthetic note rather than private files.

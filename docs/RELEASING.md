@@ -8,7 +8,7 @@ The **GitHub release assets** contain only `main.js`, `manifest.json`, `styles.c
 
 ## Before the first public release
 
-- Confirm the MIT author/license and public name. Gallery's plugin ID is `gallery` from version 0.9.3 onward. Development installations using `section-gallery` require the one-time migration documented in the README. Check name/ID availability again immediately before submission; a public-directory lookup does not reserve an ID.
+- Confirm the MIT author/license, public name and plugin ID `gallery`. Keep the plugin ID stable after Community directory publication so existing installations receive updates.
 - Review the README capabilities and limitations. Include one or two screenshots made with your own or freely licensed sample media, not private notes or unlicensed film screenshots.
 - Complete a short real-device pass: macOS trackpad, Windows/Linux keyboard, iPhone portrait/landscape, Android navigation insets/video/share; default theme, light and dark. Browser tests do not certify native OS integration.
 - Check `minAppVersion` against the APIs used. Current minimum is1.13.4; declarative settings require1.13.0 or newer. Desktop Electron helpers are dynamically loaded only in desktop branches; the plugin does not require them on mobile.

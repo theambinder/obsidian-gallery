@@ -4,13 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.9.4 - 2026-10-07
+
+### Fixed
+
+- Validate desktop clipboard and file-manager capabilities before use, retaining existing copy and navigation behavior.
+- Replace broad CSS state selectors with local Gallery state and simplify viewer styles without changing the layout.
+- Preserve native video preview visibility, keyboard focus indicators, and dynamic viewport sizing.
+
 ## 0.9.3 - 2026-10-06
 
-### Changed
+### Added
 
-- Use `gallery` as the public plugin ID and installation folder before Community directory submission. Existing development installations require a one-time manual migration; CSS hooks and the saved gallery view type remain unchanged.
-- Use unprefixed command IDs under the new `gallery` namespace, as required by Obsidian; command display names and behavior are unchanged.
-- Add optional Buy Me a Coffee support through GitHub's Sponsor button and Obsidian's standard funding link, without adding donation prompts to the plugin interface.
+- Initial Community Plugins release, with image and video browsing, search, filters, and a full-window viewer.
 
 ## 0.9.2 - 2026-09-21
 
@@ -43,7 +49,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Rename the public plugin and sidebar to Gallery; preserve the internal section-gallery ID and existing settings.
+- Rename the public plugin and sidebar to Gallery.
 - Keep mobile diagnostics as an explicit support command, not a regular settings row.
 
 ### Fixed

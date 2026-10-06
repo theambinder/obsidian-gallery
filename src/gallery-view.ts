@@ -88,6 +88,7 @@ export class SectionGalleryView extends ItemView {
 	private displayedCollapsed: Set<string> | null = null;
 	private displayedTree: MediaSectionTree | null = null;
 	private filterButton: HTMLButtonElement | null = null;
+	private focusStateFrame: number | null = null;
 	private items: GalleryMedia[] = [];
 	private readonly lastViewedMediaByNote = new Map<string, string>();
 	private lastViewedTileEl: HTMLButtonElement | null = null;
@@ -166,8 +167,19 @@ export class SectionGalleryView extends ItemView {
 			this.handleGalleryContextMenu(event);
 		});
 		this.registerDomEvent(this.contentEl, 'keydown', (event) => {
+			// Navigation can consume the key without moving focus (for example,
+			// expanding a pointer-focused summary), so do this before propagation
+			// is stopped rather than relying on the parent container listener.
+			this.scheduleKeyboardFocusState();
 			this.handleGalleryKeydown(event);
 		});
+		// Track this small subtree on focus/input changes instead of asking CSS
+		// to invalidate a :has(:focus-visible) selector on every state change.
+		this.registerDomEvent(this.containerEl, 'focusin', this.updateKeyboardFocusState);
+		this.registerDomEvent(this.containerEl, 'focusout', this.updateKeyboardFocusState);
+		this.registerDomEvent(this.containerEl, 'keydown', this.scheduleKeyboardFocusState);
+		this.registerDomEvent(this.containerEl, 'pointerdown', this.scheduleKeyboardFocusState);
+		this.updateKeyboardFocusState();
 		this.setupResizeHandling();
 		this.refresh();
 		return Promise.resolve();
@@ -191,6 +203,10 @@ export class SectionGalleryView extends ItemView {
 	}
 
 	onClose(): Promise<void> {
+		if (this.focusStateFrame !== null) {
+			this.contentEl.win.cancelAnimationFrame(this.focusStateFrame);
+			this.focusStateFrame = null;
+		}
 		this.cancelVisibleRefresh();
 		this.cancelPendingRender();
 		this.cancelSearchRender();
@@ -226,6 +242,7 @@ export class SectionGalleryView extends ItemView {
 		this.videoTileMetadata.clear();
 		this.containerEl.removeClass('is-search-open', 'has-search-query');
 		this.containerEl.removeClass('has-media-filter');
+		this.containerEl.removeClass('has-keyboard-focus');
 		this.clearRenderedTileTracking();
 		this.lastViewedMediaByNote.clear();
 		this.collapsedByNote.clear();
@@ -450,6 +467,7 @@ export class SectionGalleryView extends ItemView {
 		this.summaryEl = null;
 		this.clearRenderedTileTracking();
 		this.contentEl.empty();
+		this.updateKeyboardFocusState();
 		return this.renderRevision;
 	}
 
@@ -810,6 +828,7 @@ export class SectionGalleryView extends ItemView {
 		}
 		this.clearRenderedTileTracking();
 		this.contentEl.empty();
+		this.updateKeyboardFocusState();
 		this.renderCurrentProjection(this.renderRevision, collapsed);
 	}
 
@@ -1227,6 +1246,9 @@ export class SectionGalleryView extends ItemView {
 			}
 		}
 		body.remove();
+		// Removing a focused descendant does not consistently emit focusout
+		// across WebViews. Re-read the remaining subtree immediately.
+		this.updateKeyboardFocusState();
 	}
 
 	private enqueueTileTasks(
@@ -1372,6 +1394,9 @@ export class SectionGalleryView extends ItemView {
 		const durationBadge = videoFrame.createSpan({
 			cls: 'section-gallery-video-duration',
 		});
+		// The duration badge exists before metadata is loaded. Retain its search
+		// label placement even when the badge is temporarily hidden.
+		tile.addClass('has-video-duration');
 		durationBadge.setAttr('aria-hidden', 'true');
 		durationBadge.hidden = true;
 		const cacheKey = this.getVideoTileMetadataKey(item);
@@ -1850,6 +1875,26 @@ export class SectionGalleryView extends ItemView {
 		control.focus({ preventScroll: true });
 		control.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 	}
+
+	private readonly updateKeyboardFocusState = (): void => {
+		this.containerEl.toggleClass(
+			'has-keyboard-focus',
+			this.containerEl.querySelector(':focus-visible') !== null,
+		);
+	};
+
+	private readonly scheduleKeyboardFocusState = (): void => {
+		if (this.focusStateFrame !== null) {
+			return;
+		}
+		// A pointer/key event can change :focus-visible on an already focused
+		// element without firing focusin. Read after that event's default action,
+		// before the next paint, and cancel pending work when the view closes.
+		this.focusStateFrame = this.contentEl.win.requestAnimationFrame(() => {
+			this.focusStateFrame = null;
+			this.updateKeyboardFocusState();
+		});
+	};
 
 	private clearGalleryInteractionFocus(): void {
 		const activeElement = this.contentEl.ownerDocument.activeElement;

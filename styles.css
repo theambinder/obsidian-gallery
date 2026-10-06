@@ -262,7 +262,7 @@ body:not(.is-mobile)
 }
 
 body:not(.is-mobile)
-	.section-gallery-view:has(:focus-visible)
+	.section-gallery-view.has-keyboard-focus
 	.section-gallery-tile.is-last-viewed:not(:focus-visible) {
 	outline-color: transparent;
 }
@@ -301,7 +301,7 @@ body:not(.is-mobile)
 }
 
 .section-gallery-view
-	.section-gallery-tile:has(.section-gallery-video-duration)
+	.section-gallery-tile.has-video-duration
 	.section-gallery-search-filename {
 	top: 4px;
 	right: 4px;
@@ -651,16 +651,21 @@ body.is-mobile
 	position: relative;
 	width: 100vw;
 	height: 100vh;
-	height: 100dvh;
 	max-width: 100vw;
 	max-height: 100vh;
-	max-height: 100dvh;
 	padding: 0;
 	overflow: hidden;
 	background: var(--section-gallery-lightbox-background);
 	border: 0;
 	border-radius: 0;
 	box-shadow: none;
+}
+
+@supports (height: 100dvh) {
+	.modal.section-gallery-lightbox {
+		height: 100dvh;
+		max-height: 100dvh;
+	}
 }
 
 @media (min-height: 561px) {
@@ -1418,7 +1423,7 @@ body:not(.is-mobile)
 	display: grid;
 	margin: 0;
 	grid-template-columns: minmax(92px, 0.28fr) minmax(0, 1fr);
-	column-gap: 16px;
+	gap: 0 16px;
 }
 
 .modal.section-gallery-lightbox .section-gallery-lightbox-info-list dt,
@@ -2293,7 +2298,7 @@ body.is-android .modal.section-gallery-lightbox .section-gallery-lightbox-footer
 }
 
 .section-gallery-safe-area-probe {
-	--section-gallery-build-version: 0.9.3;
+	--section-gallery-build-version: 0.9.4;
 
 	position: fixed;
 	visibility: hidden;
@@ -2426,9 +2431,14 @@ body.is-mobile.is-phone
 
 /* Keep the observed image's geometry while iOS paints a native still. The
    fallback must not steal a tile tap or a filmstrip drag from its button. */
-.section-gallery-view img.section-gallery-native-preview-anchor,
-.section-gallery-lightbox img.section-gallery-native-preview-anchor {
-	opacity: 0 !important;
+.section-gallery-view
+	.section-gallery-tile
+	img.section-gallery-thumbnail.section-gallery-native-preview-anchor,
+.modal.section-gallery-lightbox
+	.section-gallery-filmstrip-item
+	img.section-gallery-filmstrip-thumbnail.section-gallery-native-preview-anchor,
+.modal.section-gallery-lightbox img.section-gallery-native-preview-anchor {
+	opacity: 0;
 }
 
 .section-gallery-view video.section-gallery-native-video-preview,

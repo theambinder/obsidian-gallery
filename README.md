@@ -96,17 +96,6 @@ Copy these release files into `<vault>/.obsidian/plugins/gallery/`:
 
 Reload Obsidian, then enable **Gallery** under **Settings → Community plugins**.
 
-### Moving from development versions
-
-Version 0.9.3 changes the plugin ID from `section-gallery` to `gallery` before Community directory submission. Obsidian treats this as a different plugin, not an automatic update.
-
-1. Disable the old Gallery installation before enabling the new one; do not run both at once.
-2. Install the three new release files in `<vault>/.obsidian/plugins/gallery/`.
-3. To preserve preferences, copy only `data.json` from the old `section-gallery` folder into the new folder before enabling the plugin. If the file is absent, Gallery uses its defaults. Keep the old folder as a backup.
-4. Reload Obsidian, enable Gallery, and reassign any Gallery command hotkeys, whose plugin prefix has changed.
-
-Existing CSS snippets and saved Gallery view layouts remain compatible. The documented `section-gallery-*` CSS hooks are intentionally unchanged.
-
 ## Development
 
 Requirements: Node.js 20 or later and npm.

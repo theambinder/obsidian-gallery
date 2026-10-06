@@ -21,14 +21,22 @@ type BrowserWindow = Window & {
 	ClipboardItem: typeof ClipboardItem;
 };
 
-interface ElectronModule {
-	clipboard?: {
-		has?: (format: string) => boolean;
-		writeBuffer?: (format: string, buffer: Uint8Array) => void;
-	};
-	shell: {
-		showItemInFolder: (fullPath: string) => void;
-	};
+// Desktop globals are optional runtime capabilities, not browser APIs. Keep
+// their boundary independent of Node typings, including in Obsidian's scanner.
+declare const require: unknown;
+declare const Buffer: unknown;
+
+interface NativeClipboard {
+	has(format: string): boolean;
+	writeBuffer(format: string, buffer: Uint8Array): void;
+}
+
+interface NativeShell {
+	showItemInFolder(fullPath: string): void;
+}
+
+interface NativeBufferConstructor {
+	from(value: string, encoding: 'utf8'): Uint8Array;
 }
 
 const MACOS_FILE_URL_CLIPBOARD_FORMAT = 'public.file-url';
@@ -282,16 +290,17 @@ function copyOriginalMacFile(
 }
 
 function writeMacFileUrlWithElectron(fullPath: string): void {
-	// These modules are intentionally loaded only after desktop/macOS checks.
-	// eslint-disable-next-line @typescript-eslint/no-require-imports -- Obsidian's Electron renderer exposes CommonJS at runtime.
-	const { clipboard } = require('electron') as ElectronModule;
+	const electron = loadDesktopElectron();
 	if (
-		typeof clipboard?.writeBuffer !== 'function' ||
-		typeof clipboard.has !== 'function'
+		!hasProperty(electron, 'clipboard') ||
+		!isNativeClipboard(electron.clipboard) ||
+		typeof Buffer === 'undefined' ||
+		!isNativeBufferConstructor(Buffer)
 	) {
 		throw new Error('Electron file clipboard writes are unavailable.');
 	}
 
+	const clipboard = electron.clipboard;
 	const fileUrl = encodeMacOsFileUrl(fullPath);
 	clipboard.writeBuffer(
 		MACOS_FILE_URL_CLIPBOARD_FORMAT,
@@ -338,12 +347,57 @@ function revealInFileManager(app: App, media: GalleryMedia): Promise<void> {
 		return Promise.reject(new Error('The vault has no desktop file path.'));
 	}
 
-	// Obsidian plugins run as CommonJS in Electron's renderer. Native import()
-	// would be handled by Chromium rather than Electron's module loader.
-	// eslint-disable-next-line @typescript-eslint/no-require-imports -- Electron's renderer module is CommonJS-only here.
-	const { shell } = require('electron') as ElectronModule;
-	shell.showItemInFolder(app.vault.adapter.getFullPath(media.file.path));
+	const electron = loadDesktopElectron();
+	if (!hasProperty(electron, 'shell') || !isNativeShell(electron.shell)) {
+		return Promise.reject(new Error('The desktop file manager is unavailable.'));
+	}
+	electron.shell.showItemInFolder(app.vault.adapter.getFullPath(media.file.path));
 	return Promise.resolve();
+}
+
+function loadDesktopElectron(): unknown {
+	if (!Platform.isDesktopApp || typeof require !== 'function') {
+		throw new Error('Desktop module loading is unavailable.');
+	}
+
+	// Obsidian supplies CommonJS in its Electron renderer. A native import()
+	// would instead be handled by Chromium. Treat its result as untrusted until
+	// the specific clipboard or shell capabilities have been checked below.
+	const loadModule = require as (specifier: string) => unknown;
+	return loadModule('electron');
+}
+
+function hasProperty<Key extends string>(
+	value: unknown,
+	key: Key,
+): value is Record<Key, unknown> {
+	return (
+		((typeof value === 'object' && value !== null) ||
+			typeof value === 'function') &&
+		key in value
+	);
+}
+
+function isNativeClipboard(value: unknown): value is NativeClipboard {
+	return (
+		hasProperty(value, 'has') &&
+		typeof value.has === 'function' &&
+		hasProperty(value, 'writeBuffer') &&
+		typeof value.writeBuffer === 'function'
+	);
+}
+
+function isNativeShell(value: unknown): value is NativeShell {
+	return (
+		hasProperty(value, 'showItemInFolder') &&
+		typeof value.showItemInFolder === 'function'
+	);
+}
+
+function isNativeBufferConstructor(
+	value: unknown,
+): value is NativeBufferConstructor {
+	return hasProperty(value, 'from') && typeof value.from === 'function';
 }
 
 async function runMenuAction(

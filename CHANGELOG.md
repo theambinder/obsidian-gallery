@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.9.3 - 2026-10-06
+
+### Changed
+
+- Use `gallery` as the public plugin ID and installation folder before Community directory submission. Existing development installations require a one-time manual migration; CSS hooks and the saved gallery view type remain unchanged.
+- Use unprefixed command IDs under the new `gallery` namespace, as required by Obsidian; command display names and behavior are unchanged.
+- Add optional Buy Me a Coffee support through GitHub's Sponsor button and Obsidian's standard funding link, without adding donation prompts to the plugin interface.
+
 ## 0.9.2 - 2026-09-21
 
 ### Fixed

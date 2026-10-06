@@ -51,14 +51,14 @@ export default class SectionGalleryPlugin extends Plugin {
 			this.openGalleryFromCommand(false);
 		});
 		this.addCommand({
-			id: 'open-media-gallery',
+			id: 'open-media',
 			name: OPEN_GALLERY_COMMAND_NAME,
 			callback: () => {
 				this.openGalleryFromCommand(false);
 			},
 		});
 		this.addCommand({
-			id: 'focus-media-gallery',
+			id: 'focus-media',
 			name: 'Focus media',
 			callback: () => {
 				this.openGalleryFromCommand(true);

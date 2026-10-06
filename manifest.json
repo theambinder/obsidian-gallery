@@ -1,9 +1,10 @@
 {
-	"id": "section-gallery",
+	"id": "gallery",
 	"name": "Gallery",
-	"version": "0.9.2",
+	"version": "0.9.3",
 	"minAppVersion": "1.13.4",
 	"description": "Browse images and videos from the active note, grouped by section, in a fast sidebar gallery.",
 	"author": "ambinder",
+	"fundingUrl": "https://buymeacoffee.com/ambinder",
 	"isDesktopOnly": false
 }

@@ -8,7 +8,7 @@ The **GitHub release assets** contain only `main.js`, `manifest.json`, `styles.c
 
 ## Before the first public release
 
-- Confirm the MIT author/license and public name. Gallery's internal ID stays `section-gallery`, preserving updates from development builds. Check name/ID availability again immediately before submission.
+- Confirm the MIT author/license and public name. Gallery's plugin ID is `gallery` from version 0.9.3 onward. Development installations using `section-gallery` require the one-time migration documented in the README. Check name/ID availability again immediately before submission; a public-directory lookup does not reserve an ID.
 - Review the README capabilities and limitations. Include one or two screenshots made with your own or freely licensed sample media, not private notes or unlicensed film screenshots.
 - Complete a short real-device pass: macOS trackpad, Windows/Linux keyboard, iPhone portrait/landscape, Android navigation insets/video/share; default theme, light and dark. Browser tests do not certify native OS integration.
 - Check `minAppVersion` against the APIs used. Current minimum is1.13.4; declarative settings require1.13.0 or newer. Desktop Electron helpers are dynamically loaded only in desktop branches; the plugin does not require them on mobile.
@@ -29,7 +29,7 @@ Review exactly three generated assets. Preserve the previous release for rollbac
 ## Publish and submit
 
 1. Create a public GitHub repository and push the reviewed source on its default branch. The repository URL must be one you own or are authorized to maintain.
-2. Tag the release with exactly the manifest version, such as `0.9.2`, without a `v`. The supplied GitHub Actions workflow builds and creates a **draft** release; check it and publish it. Alternatively upload the three assets yourself. A ZIP alone is insufficient: attach each asset separately.
+2. Tag the release with exactly the manifest version, such as `0.9.3`, without a `v`. The supplied GitHub Actions workflow builds and creates a **draft** release; check it and publish it. Alternatively upload the three assets yourself. A ZIP alone is insufficient: attach each asset separately.
 3. Sign in at [Obsidian Community](https://community.obsidian.md), link your GitHub account, and submit the repository through **Plugins → New plugin**.
 4. Resolve the directory's scanner/review feedback. A local audit does not guarantee directory approval. Any changed code needs a new version/release.
 

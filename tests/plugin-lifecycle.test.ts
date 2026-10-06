@@ -285,7 +285,7 @@ void test('diagnostics are tracked until closed and remaining reports close on p
 });
 
 void test('ribbon and gallery commands report rejected opens and focus instead of unhandled promises', async () => {
-	for (const action of ['ribbon', 'open-media-gallery', 'focus-media-gallery']) {
+	for (const action of ['ribbon', 'open-media', 'focus-media']) {
 		const opening = deferred<void>();
 		const h = await harness({ setViewState: opening.promise });
 		await h.plugin.onload();
@@ -294,7 +294,7 @@ void test('ribbon and gallery commands report rejected opens and focus instead o
 		opening.reject(new Error('Workspace unavailable'));
 		await new Promise<void>(resolve => setImmediate(resolve));
 		assert.equal(h.notices.length, 1);
-		assert.match(h.notices[0]!, action === 'focus-media-gallery' ? /Could not focus/ : /Could not open/);
+		assert.match(h.notices[0]!, action === 'focus-media' ? /Could not focus/ : /Could not open/);
 	}
 });
 
@@ -302,7 +302,7 @@ void test('command rejection after unload does not show a stale error notice', a
 	const opening = deferred<void>();
 	const h = await harness({ setViewState: opening.promise });
 	await h.plugin.onload();
-	h.commands.get('open-media-gallery')!();
+	h.commands.get('open-media')!();
 	h.plugin.onunload();
 	opening.reject(new Error('View unregistered'));
 	await new Promise<void>(resolve => setImmediate(resolve));

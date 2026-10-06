@@ -13,7 +13,7 @@ function withFixture(run: (directory: string) => void): void {
 	const directory = mkdtempSync(join(tmpdir(), 'gallery-release-test-'));
 	try {
 		mkdirSync(join(directory, 'src'));
-		writeFileSync(join(directory, 'manifest.json'), JSON.stringify({ id: 'section-gallery', name: 'Gallery', version, minAppVersion: '1.13.4' }));
+		writeFileSync(join(directory, 'manifest.json'), JSON.stringify({ id: 'gallery', name: 'Gallery', version, minAppVersion: '1.13.4', fundingUrl: 'https://buymeacoffee.com/ambinder' }));
 		writeFileSync(join(directory, 'package.json'), JSON.stringify({ version }));
 		writeFileSync(join(directory, 'versions.json'), JSON.stringify({ '0.8.3': '1.13.4', [version]: '1.13.4' }));
 		writeFileSync(join(directory, 'main.js'), `const GALLERY_BUILD_VERSION = '${version}';`);
@@ -95,6 +95,19 @@ void test('version bump synchronizes runtime and stylesheet markers, retaining c
 		assert.match(readFileSync(join(directory, 'src/mobile-diagnostics.ts'), 'utf8'), /GALLERY_BUILD_VERSION = '0\.9\.1';/u);
 		assert.match(readFileSync(join(directory, 'styles.css'), 'utf8'), /--section-gallery-build-version: 0\.9\.1;/u);
 		assert.deepEqual(JSON.parse(readFileSync(join(directory, 'versions.json'), 'utf8')), { '0.8.3': '1.13.4', '0.9.0': '1.13.4', '0.9.1': '1.13.4' });
+	});
+});
+
+void test('version bump retains the public plugin identity and funding link', () => {
+	withFixture(directory => {
+		const result = spawnSync(process.execPath, [bumpScript], {
+			cwd: directory, encoding: 'utf8', env: { ...process.env, npm_package_version: '0.9.3' },
+		});
+		assert.equal(result.status, 0, result.stderr);
+		const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8')) as { id: string; fundingUrl: string; version: string };
+		assert.equal(manifest.id, 'gallery');
+		assert.equal(manifest.fundingUrl, 'https://buymeacoffee.com/ambinder');
+		assert.equal(manifest.version, '0.9.3');
 	});
 });
 

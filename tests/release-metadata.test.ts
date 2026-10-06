@@ -11,11 +11,13 @@ interface Manifest {
 	isDesktopOnly: boolean;
 	minAppVersion: string;
 	version: string;
+	fundingUrl: string;
 }
 
 void test('public manifest meets basic Obsidian submission requirements', () => {
 	const manifest = readJson<Manifest>('manifest.json');
 	assert.match(manifest.id, /^[a-z]+(?:-[a-z]+)*$/u);
+	assert.equal(manifest.id, 'gallery');
 	assert.equal(manifest.id.includes('obsidian'), false);
 	assert.equal(manifest.id.endsWith('plugin'), false);
 	assert.equal(manifest.name, VIEW_NAME);
@@ -31,6 +33,7 @@ void test('public manifest meets basic Obsidian submission requirements', () => 
 });
 
 interface PackageMetadata {
+	name: string;
 	version: string;
 }
 
@@ -54,10 +57,19 @@ void test('keeps release metadata synchronized', () => {
 	const stylesheet = readFileSync('styles.css', 'utf8');
 
 	assert.equal(packageMetadata.version, manifest.version);
+	assert.equal(packageMetadata.name, manifest.id);
+	assert.equal(packageLock.name, manifest.id);
+	assert.equal(packageLock.packages[''].name, manifest.id);
 	assert.equal(packageLock.version, manifest.version);
 	assert.equal(packageLock.packages[''].version, manifest.version);
 	assert.equal(versions[manifest.version], manifest.minAppVersion);
 	assert.ok(diagnostics.includes(`GALLERY_BUILD_VERSION = '${manifest.version}'`));
 	assert.ok(stylesheet.includes(`--section-gallery-build-version: ${manifest.version};`));
 	assert.match(changelog, new RegExp(`^## ${manifest.version}\\b`, 'mu'));
+});
+
+void test('support links use the standard Obsidian and GitHub funding locations', () => {
+	const manifest = readJson<Manifest>('manifest.json');
+	assert.equal(manifest.fundingUrl, 'https://buymeacoffee.com/ambinder');
+	assert.match(readFileSync('.github/FUNDING.yml', 'utf8'), /^buy_me_a_coffee: ambinder\s*$/u);
 });

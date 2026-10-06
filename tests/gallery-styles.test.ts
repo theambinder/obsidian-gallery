@@ -38,6 +38,38 @@ void test('metadata grid retains zero row gap and sixteen-pixel column spacing',
 	assert.doesNotMatch(metadata, /column-gap:/u);
 });
 
+void test('desktop metadata height stays compact on large windows without changing mobile limits', () => {
+	const desktop = rule('body:not(.is-mobile) .modal.section-gallery-lightbox', '--section-gallery-info-height:');
+	assert.match(desktop, /--section-gallery-info-height: min\(32vh, 248px\);/u);
+	assert.match(desktop, /--section-gallery-info-height: min\(32dvh, 248px\);/u);
+	assert.match(rule('.modal.section-gallery-lightbox', 'min(44vh'), /min\(44vh, 360px\)/u);
+	assert.match(rule('.modal.section-gallery-lightbox .section-gallery-lightbox-info-scroll'), /overflow-y: auto;/u);
+	const scroll = rule('body:not(.is-mobile) .modal.section-gallery-lightbox .section-gallery-lightbox-info-scroll');
+	assert.match(scroll, /bottom: calc\(52px \+ var\(--section-gallery-safe-bottom\)\);/u);
+	assert.match(scroll, /padding-top: 10px;/u);
+	assert.match(scroll, /padding-bottom: 6px;/u);
+});
+
+void test('filmstrip keyboard focus never draws a ring while control buttons keep their focus indicator', () => {
+	for (const state of ['focus', 'focus-visible']) {
+		const item = rule(`.modal.section-gallery-lightbox button.section-gallery-filmstrip-item:${state}`);
+		assert.match(item, /outline: 0;/u);
+		assert.match(item, /outline-offset: 0;/u);
+		assert.match(item, /box-shadow: none;/u);
+	}
+	assert.match(rule('.modal.section-gallery-lightbox button:focus-visible'), /outline: 2px solid/u);
+});
+
+void test('filmstrip separators are small circles on desktop and phones', () => {
+	const separator = rule('.modal.section-gallery-lightbox .section-gallery-filmstrip-separator');
+	assert.match(separator, /width: 6px;/u);
+	assert.match(separator, /height: 6px;/u);
+	assert.match(separator, /min-width: 6px;/u);
+	assert.match(separator, /flex: 0 0 auto;/u);
+	assert.match(separator, /border-radius: 50%;/u);
+	assert.doesNotMatch(rule('body.is-phone .modal.section-gallery-lightbox .section-gallery-filmstrip-separator'), /height:/u);
+});
+
 void test('native iOS still anchors remain invisible above loaded thumbnail cascade without important', () => {
 	assert.doesNotMatch(stylesheet, /!important/u);
 	for (const [loadedSelector, anchorSelector] of [

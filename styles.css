@@ -670,8 +670,8 @@ body.is-mobile
 
 @media (min-height: 561px) {
 	body:not(.is-mobile) .modal.section-gallery-lightbox {
-		--section-gallery-info-height: min(32vh, 280px);
-		--section-gallery-info-height: min(32dvh, 280px);
+		--section-gallery-info-height: min(32vh, 248px);
+		--section-gallery-info-height: min(32dvh, 248px);
 	}
 }
 
@@ -1168,18 +1168,28 @@ body.mod-macos:not(.is-fullscreen):not(.is-mobile)
 	width: var(--section-gallery-filmstrip-item-current-width);
 }
 
+/* The expanded thumbnail identifies the current media, including keyboard
+   navigation. Keep its real focus without drawing a second selection ring. */
+.modal.section-gallery-lightbox button.section-gallery-filmstrip-item:focus,
+.modal.section-gallery-lightbox button.section-gallery-filmstrip-item:focus-visible {
+	outline: 0;
+	outline-offset: 0;
+	box-shadow: none;
+}
+
 .modal.section-gallery-lightbox
 	.section-gallery-filmstrip-item:is(.is-page-origin, .is-page-target) {
 	transition: none;
 }
 
 .modal.section-gallery-lightbox .section-gallery-filmstrip-separator {
-	width: 4px;
-	height: 42px;
-	min-width: 4px;
+	width: 6px;
+	height: 6px;
+	min-width: 6px;
 	margin: 0 14px;
+	flex: 0 0 auto;
 	background: var(--section-gallery-filmstrip-separator-color);
-	border-radius: 999px;
+	border-radius: 50%;
 	box-shadow: 0 0 0 1px var(--section-gallery-filmstrip-separator-outline);
 	pointer-events: none;
 }
@@ -1417,6 +1427,16 @@ body:not(.is-mobile)
 .modal.section-gallery-lightbox .section-gallery-lightbox-info-content {
 	width: min(100%, 680px);
 	margin-inline: auto;
+}
+
+/* Match the 44px footer and its 8px edge gap without reserving a second
+   spacer under the rows. Long paths and video fields remain scrollable. */
+body:not(.is-mobile)
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-info-scroll {
+	bottom: calc(52px + var(--section-gallery-safe-bottom));
+	padding-top: 10px;
+	padding-bottom: 6px;
 }
 
 .modal.section-gallery-lightbox .section-gallery-lightbox-info-list {
@@ -2053,7 +2073,6 @@ body.is-phone
 body.is-phone
 	.modal.section-gallery-lightbox
 	.section-gallery-filmstrip-separator {
-	height: 34px;
 	margin-right: 12px;
 	margin-left: 12px;
 }
@@ -2298,7 +2317,7 @@ body.is-android .modal.section-gallery-lightbox .section-gallery-lightbox-footer
 }
 
 .section-gallery-safe-area-probe {
-	--section-gallery-build-version: 0.9.5;
+	--section-gallery-build-version: 0.9.6;
 
 	position: fixed;
 	visibility: hidden;

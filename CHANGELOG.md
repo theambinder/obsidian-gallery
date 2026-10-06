@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.9.6 - 2026-10-07
+
+### Fixed
+
+- Reduce empty space below file information in large desktop viewer windows.
+- Keep carousel thumbnails free of outlines during keyboard navigation.
+
+### Changed
+
+- Use small circular carousel separators instead of vertical lines.
+
 ## 0.9.5 - 2026-10-07
 
 ### Changed

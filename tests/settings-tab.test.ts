@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import { build } from 'esbuild';
+import { TILE_SCALE_PRESETS, tileLevelToScale, tileScaleToLevel } from '../src/gallery-tile-size';
 
 interface SettingsHost {
 	getTileScale(): number;
@@ -73,14 +74,17 @@ async function harness(options: { fail?: boolean; scale?: number; showSections?:
 	runInNewContext(await settingsBundle, {
 		module,
 		require: () => ({
-			PluginSettingTab: class { updates = 0; update(): void { this.updates += 1; } },
+			PluginSettingTab: class { updates = 0; update(): void { this.updates += 1; } hide(): void {} },
 			Notice: class { constructor(message: string) { notices.push(message); } },
 		}),
 	});
 	const Constructor = (module.exports as {
 		GallerySettingsTab: new (app: object, plugin: object, host: SettingsHost) => TestTab;
 	}).GallerySettingsTab;
-	return { tab: new Constructor({}, {}, host), notices, scales, sectionVisibility };
+	return {
+		tab: new Constructor({}, {}, host), notices, scales, sectionVisibility,
+		getScale: () => scale,
+	};
 }
 
 function renderSlider(definition: TestDefinition) {
@@ -112,7 +116,7 @@ function renderSlider(definition: TestDefinition) {
 	};
 	assert.ok(definition.render);
 	definition.render(setting);
-	return { classes, limits, value, instant, format, change, reset, icon, tooltip };
+	return { classes, limits, value, instant, format, change, reset, icon, tooltip, getValue: () => value, getLimits: () => limits };
 }
 
 void test('public settings expose tile scale and native section visibility, without a diagnostics row', async () => {
@@ -137,29 +141,87 @@ void test('native section toggle reads saved visibility and routes only boolean 
 	assert.deepEqual(sectionVisibility, [true]);
 });
 
-void test('tile slider uses the expanded range and a scoped native setting class while retaining live updates and reset', async () => {
+void test('tile slider shows twenty fixed numeric sizes with percentage persistence, live updates and reset', async () => {
 	const { tab, scales } = await harness({ scale: 30 });
 	const slider = renderSlider(tab.getSettingDefinitions()[0]!);
 	assert.deepEqual(slider.classes, ['section-gallery-tile-scale-setting']);
-	assert.deepEqual(slider.limits, [30, 180, 10]);
-	assert.equal(slider.value, 30);
+	assert.deepEqual(slider.limits, [1, 20, 1]);
+	assert.equal(slider.value, 3);
 	assert.equal(slider.instant, true);
-	assert.equal(slider.format(30), '30%');
-	assert.equal(slider.format(100), '100%');
-	assert.equal(slider.format(180), '180%');
+	assert.equal(slider.format(1), '1');
+	assert.equal(slider.format(9), '9');
+	assert.equal(slider.format(10), '10');
+	assert.equal(slider.format(20), '20');
 	assert.equal(slider.icon, 'rotate-ccw');
 	assert.equal(slider.tooltip, 'Reset tile scale');
-	slider.change(110);
+	slider.change(20);
 	slider.reset();
 	await new Promise<void>(resolve => setImmediate(resolve));
-	assert.deepEqual(scales, [110, 100]);
+	assert.deepEqual(scales, [2000, 100]);
 	assert.equal(tab.updates, 1);
+});
+
+void test('fixed tile levels preserve legacy scales and restore the same numeric level when reopened', async () => {
+	const h = await harness({ scale: 380 });
+	const slider = renderSlider(h.tab.getSettingDefinitions()[0]!);
+	assert.equal(slider.value, tileScaleToLevel(380));
+	assert.equal(h.getScale(), 380);
+	assert.deepEqual(h.scales, [], 'Opening settings must preserve a legacy saved percentage');
+	slider.change(20);
+	await new Promise<void>(resolve => setImmediate(resolve));
+	assert.deepEqual(h.scales, [2000]);
+	const reopened = await harness({ scale: h.scales[0] });
+	const restoredSlider = renderSlider(reopened.tab.getSettingDefinitions()[0]!);
+	assert.equal(restoredSlider.value, 20);
+	assert.deepEqual(reopened.scales, [], 'Displaying a saved larger size must not rewrite it');
+	restoredSlider.reset();
+	await new Promise<void>(resolve => setImmediate(resolve));
+	assert.deepEqual(reopened.scales, [100]);
+});
+
+void test('each fixed number stores its own increasing scale without requiring any pane geometry', async () => {
+	const { tab, scales } = await harness({ scale: 100 });
+	const slider = renderSlider(tab.getSettingDefinitions()[0]!);
+	assert.equal(slider.value, 8);
+	assert.deepEqual(scales, [], 'Opening settings must not change a saved scale');
+	for (let level = 1; level <= 20; level += 1) {
+		slider.change(level);
+	}
+	assert.deepEqual(scales, [...TILE_SCALE_PRESETS]);
+	assert.equal(new Set(scales).size, 20);
+	assert.equal(scales.at(-1), 2000);
+	for (let index = 1; index < scales.length; index += 1) {
+		assert.ok(scales[index]! > scales[index - 1]!);
+	}
+});
+
+void test('opening fixed size settings does not rewrite nonpreset or previously larger preview values', async () => {
+	for (const scale of [123, 380, 1990, 50000]) {
+		const h = await harness({ scale });
+		const slider = renderSlider(h.tab.getSettingDefinitions()[0]!);
+		assert.equal(slider.getValue(), tileScaleToLevel(scale));
+		assert.deepEqual(slider.getLimits(), [1, 20, 1]);
+		assert.equal(h.getScale(), scale);
+		assert.deepEqual(h.scales, []);
+		assert.equal(h.tab.updates, 0);
+	}
+});
+
+void test('reset always restores the fixed default level rather than a pane-dependent density', async () => {
+	const h = await harness({ scale: 50000 });
+	const slider = renderSlider(h.tab.getSettingDefinitions()[0]!);
+	slider.reset();
+	await new Promise<void>(resolve => setImmediate(resolve));
+	assert.equal(h.getScale(), 100);
+	assert.equal(tileScaleToLevel(h.getScale()), 8);
+	assert.equal(tileLevelToScale(8), 100);
+	assert.deepEqual(h.scales, [100]);
 });
 
 void test('failed tile saves show notices and a failed reset does not refresh the native settings row', async () => {
 	const { tab, notices } = await harness({ fail: true });
 	const slider = renderSlider(tab.getSettingDefinitions()[0]!);
-	slider.change(90);
+	slider.change(9);
 	slider.reset();
 	await new Promise<void>(resolve => setImmediate(resolve));
 	assert.equal(notices.length, 2);

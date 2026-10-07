@@ -1,4 +1,4 @@
-import { Platform, type App, type TFile } from 'obsidian';
+import { Platform, type App } from 'obsidian';
 import {
 	getEncodedImageDimensions,
 	getMediaMimeType,
@@ -13,6 +13,7 @@ type LazyMediaElement = HTMLImageElement | HTMLVideoElement;
 
 interface LazyMediaState {
 	attachedThumbnailKey: string | null;
+	attachedThumbnailPinned: boolean;
 	item: GalleryMedia;
 	loading: boolean;
 	nativeVideoFallback: boolean;
@@ -20,6 +21,7 @@ interface LazyMediaState {
 	onAspectRatio?: (ratio: number) => void;
 	onVideoMetadata?: (metadata: VideoTileMetadata) => void;
 	queued: boolean;
+	thumbnailIdentityChanged: boolean;
 	videoAbortController: AbortController | null;
 	videoPreviewCancelled: boolean;
 	visible: boolean;
@@ -27,6 +29,9 @@ interface LazyMediaState {
 
 interface ThumbnailEntry {
 	aspectRatio: number;
+	attachments: Set<HTMLImageElement>;
+	bytes: number;
+	filePath: string;
 	references: number;
 	url: string;
 	videoMetadata?: VideoTileMetadata;
@@ -40,33 +45,51 @@ interface ThumbnailResult {
 }
 
 export interface LazyMediaLoaderOptions {
+	/** Reusable compressed bytes; currently visible/pending thumbnails stay pinned. */
+	cacheBytes?: number;
 	cacheEntries?: number;
 	concurrency?: number;
 	imageRootMargin?: string;
 	manualMarginPx?: number;
+	/** Extra offscreen sources, estimated at thumbnailWidth² × 4 bytes each. */
+	retainedBytes?: number;
 	thumbnailWidth?: number;
 	videoRootMargin?: string;
 }
 
 const DEFAULT_THUMBNAIL_WIDTH = 384;
+const MOBILE_CACHE_BYTES = 8 * 1024 * 1024;
+const DESKTOP_CACHE_BYTES = 24 * 1024 * 1024;
 const MAX_MOBILE_FALLBACK_PIXELS = 24_000_000;
 
 export class LazyMediaLoader {
 	private activeJobs = 0;
+	private activeImageJobs = 0;
+	private activeVideoJobs = 0;
 	private readonly cache = new Map<string, ThumbnailEntry>();
+	private cacheSizeBytes = 0;
+	private readonly cacheBytes: number;
 	private readonly cacheEntries: number;
 	private readonly concurrency: number;
+	private readonly imageConcurrency: number;
+	private readonly videoConcurrency: number;
 	private disposed = false;
 	private readonly imageObserver: IntersectionObserver | null;
 	private readonly imageRootMargin: string;
 	private readonly inflight = new Map<string, Promise<ThumbnailResult>>();
 	private readonly pendingThumbnailReferences = new Map<string, number>();
+	private readonly latestThumbnailKeys = new Map<string, string>();
 	private manualFrame: number | null = null;
 	private readonly manualMarginPx: number;
 	private readonly mediaStates = new Map<LazyMediaElement, LazyMediaState>();
 	private readonly queue: HTMLImageElement[] = [];
+	private queueBatchDepth = 0;
+	private readonly retainedThumbnails = new Map<HTMLImageElement, LazyMediaState>();
+	private retainedSizeBytes = 0;
+	private readonly retainedBytes: number;
 	private readonly root: Element;
 	private readonly thumbnailWidth: number;
+	private readonly thumbnailMemoryBytes: number;
 	private readonly videoObserver: IntersectionObserver | null;
 	private readonly videoRootMargin: string;
 
@@ -76,11 +99,21 @@ export class LazyMediaLoader {
 		options: LazyMediaLoaderOptions = {},
 	) {
 		this.root = root;
-		this.cacheEntries = options.cacheEntries ?? (Platform.isMobile ? 64 : 128);
-		this.concurrency = options.concurrency ?? (Platform.isMobile ? 1 : 3);
+		this.cacheEntries = options.cacheEntries ?? 512;
+		this.cacheBytes = options.cacheBytes ?? (Platform.isMobile ? MOBILE_CACHE_BYTES : DESKTOP_CACHE_BYTES);
+		this.retainedBytes = options.retainedBytes ?? (Platform.isMobile ? MOBILE_CACHE_BYTES : DESKTOP_CACHE_BYTES);
+		const splitMobileJobs = Platform.isMobile && options.concurrency === undefined;
+		this.concurrency = options.concurrency ?? (Platform.isMobile ? 2 : 3);
+		// One image decoder and one ranged video frame may progress independently
+		// on mobile. Explicit filmstrip/test limits retain their global job cap.
+		this.imageConcurrency = splitMobileJobs ? 1 : this.concurrency;
+		this.videoConcurrency = splitMobileJobs ? 1 : this.concurrency;
 		this.manualMarginPx = options.manualMarginPx ?? 144;
 		this.thumbnailWidth =
 			options.thumbnailWidth ?? DEFAULT_THUMBNAIL_WIDTH;
+		// Charge each retained source conservatively, even when duplicates could
+		// share a browser decode or an aspect-fit thumbnail uses fewer pixels.
+		this.thumbnailMemoryBytes = this.thumbnailWidth * this.thumbnailWidth * 4;
 		this.imageRootMargin = options.imageRootMargin ?? '144px 0px';
 		this.videoRootMargin = options.videoRootMargin ?? '32px 0px';
 		this.imageObserver = this.createObserver(this.imageRootMargin);
@@ -106,8 +139,10 @@ export class LazyMediaLoader {
 			return;
 		}
 		this.unobserve(media);
+		this.rememberThumbnailIdentity(item);
 		const state: LazyMediaState = {
 			attachedThumbnailKey: null,
+			attachedThumbnailPinned: false,
 			item,
 			loading: false,
 			nativeVideoFallback: false,
@@ -115,6 +150,7 @@ export class LazyMediaLoader {
 			onAspectRatio,
 			onVideoMetadata,
 			queued: false,
+			thumbnailIdentityChanged: false,
 			videoAbortController: null,
 			videoPreviewCancelled: false,
 			visible: false,
@@ -168,6 +204,10 @@ export class LazyMediaLoader {
 			this.getUrlApi().revokeObjectURL(entry.url);
 		}
 		this.cache.clear();
+		this.cacheSizeBytes = 0;
+		this.retainedThumbnails.clear();
+		this.retainedSizeBytes = 0;
+		this.latestThumbnailKeys.clear();
 	}
 
 	private createObserver(rootMargin: string): IntersectionObserver | null {
@@ -180,9 +220,15 @@ export class LazyMediaLoader {
 		}
 		return new Observer(
 			(entries) => {
-				for (const entry of entries) {
-					const media = entry.target as LazyMediaElement;
-					this.setVisibility(media, entry.isIntersecting);
+				this.queueBatchDepth += 1;
+				try {
+					for (const entry of entries) {
+						const media = entry.target as LazyMediaElement;
+						this.setVisibility(media, entry.isIntersecting);
+					}
+				} finally {
+					this.queueBatchDepth -= 1;
+					this.drainQueue();
 				}
 			},
 			{ root: this.root, rootMargin },
@@ -206,14 +252,20 @@ export class LazyMediaLoader {
 		// immediately afterwards, repeatedly opening mobile decoder resources.
 		const imageBounds = this.expandManualBounds(rootRect, this.imageRootMargin);
 		const videoBounds = this.expandManualBounds(rootRect, this.videoRootMargin);
-		for (const [media, state] of this.mediaStates) {
-			const rect = media.getBoundingClientRect();
-			const visible = isRectVisibleWithinRoot(
-				state.item.kind === 'video' ? videoBounds : imageBounds,
-				rect,
-				0,
-			);
-			this.setVisibility(media, visible);
+		this.queueBatchDepth += 1;
+		try {
+			for (const [media, state] of this.mediaStates) {
+				const rect = media.getBoundingClientRect();
+				const visible = isRectVisibleWithinRoot(
+					state.item.kind === 'video' ? videoBounds : imageBounds,
+					rect,
+					0,
+				);
+				this.setVisibility(media, visible);
+			}
+		} finally {
+			this.queueBatchDepth -= 1;
+			this.drainQueue();
 		}
 	}
 
@@ -251,7 +303,7 @@ export class LazyMediaLoader {
 		}
 		state.visible = visible;
 		if (!visible) {
-			this.unload(media, state);
+			this.unload(media, state, true);
 			return;
 		}
 		if (media.instanceOf(HTMLVideoElement)) {
@@ -265,40 +317,60 @@ export class LazyMediaLoader {
 		media: HTMLImageElement,
 		state: LazyMediaState,
 	): void {
+		// A completed still never needs a worker, including while a slow video
+		// occupies the mobile queue. Retained sources are repinned in place.
+		if (this.attachCachedThumbnail(media, state)) {
+			return;
+		}
 		if (state.queued || state.loading || media.hasAttribute('src')) {
 			return;
 		}
 		state.queued = true;
 		this.queue.push(media);
-		this.drainQueue();
+		if (this.queueBatchDepth === 0) this.drainQueue();
 	}
 
 	private takeNearestQueuedImage(): HTMLImageElement | undefined {
 		if (this.queue.length < 2) {
+			const first = this.queue[0];
+			if (first && !this.canStartQueuedMedia(first)) return undefined;
 			return this.queue.shift();
 		}
 		// Measure each queued tile once, only when a worker becomes available.
 		// Sorting after every intersection callback repeatedly forces layout while
 		// a mobile user scrolls through a long note.
 		const rootRect = this.root.getBoundingClientRect();
-		let closestIndex = 0;
+		let closestIndex = -1;
+		let closestPriority = Number.POSITIVE_INFINITY;
 		let closestDistance = Number.POSITIVE_INFINITY;
 		for (const [index, media] of this.queue.entries()) {
+			if (!this.canStartQueuedMedia(media)) continue;
 			const mediaRect = media.getBoundingClientRect();
+			const isInViewport = isRectVisibleWithinRoot(rootRect, mediaRect, 0);
+			const isVideo = this.mediaStates.get(media)?.item.kind === 'video';
+			const priority = (isInViewport ? 0 : 2) + (isVideo ? 1 : 0);
 			const deltaX =
 				(mediaRect.left + mediaRect.right - rootRect.left - rootRect.right) / 2;
 			const deltaY =
 				(mediaRect.top + mediaRect.bottom - rootRect.top - rootRect.bottom) / 2;
 			const distance = deltaX * deltaX + deltaY * deltaY;
-			if (distance < closestDistance) {
+			if (priority < closestPriority || (priority === closestPriority && distance < closestDistance)) {
+				closestPriority = priority;
 				closestDistance = distance;
 				closestIndex = index;
 			}
 		}
-		return this.queue.splice(closestIndex, 1)[0];
+		return closestIndex === -1 ? undefined : this.queue.splice(closestIndex, 1)[0];
+	}
+
+	private canStartQueuedMedia(media: HTMLImageElement): boolean {
+		return this.mediaStates.get(media)?.item.kind === 'video'
+			? this.activeVideoJobs < this.videoConcurrency
+			: this.activeImageJobs < this.imageConcurrency;
 	}
 
 	private drainQueue(): void {
+		if (this.queueBatchDepth > 0) return;
 		while (
 			!this.disposed &&
 			this.activeJobs < this.concurrency &&
@@ -316,13 +388,20 @@ export class LazyMediaLoader {
 			if (!state.visible || state.loading || media.hasAttribute('src')) {
 				continue;
 			}
+			if (this.attachCachedThumbnail(media, state)) continue;
+			const isVideoJob = state.item.kind === 'video';
 			this.activeJobs += 1;
+			if (isVideoJob) this.activeVideoJobs += 1;
+			else this.activeImageJobs += 1;
 			state.loading = true;
 			void this.loadImage(media, state).finally(() => {
 				state.loading = false;
 				this.activeJobs -= 1;
-				if (state.videoPreviewCancelled) {
+				if (isVideoJob) this.activeVideoJobs -= 1;
+				else this.activeImageJobs -= 1;
+				if (state.videoPreviewCancelled || state.thumbnailIdentityChanged) {
 					state.videoPreviewCancelled = false;
+					state.thumbnailIdentityChanged = false;
 					if (!this.disposed && state.visible && this.mediaStates.get(media) === state) {
 						this.enqueueImage(media, state);
 					}
@@ -337,6 +416,7 @@ export class LazyMediaLoader {
 		state: LazyMediaState,
 	): Promise<void> {
 		const thumbnailKey = this.getThumbnailKey(state.item);
+		this.rememberThumbnailIdentity(state.item);
 		this.pendingThumbnailReferences.set(
 			thumbnailKey, (this.pendingThumbnailReferences.get(thumbnailKey) ?? 0) + 1,
 		);
@@ -355,11 +435,13 @@ export class LazyMediaLoader {
 						state.onVideoMetadata?.(metadata);
 					}
 				})
-				: await this.getThumbnail(state.item.file, thumbnailKey);
+				: await this.getThumbnail(state.item, thumbnailKey);
 			if (
 				this.disposed ||
 				!state.visible ||
-				this.mediaStates.get(media) !== state
+				this.mediaStates.get(media) !== state ||
+				this.getThumbnailKey(state.item) !== thumbnailKey ||
+				this.latestThumbnailKeys.get(state.item.file.path) !== thumbnailKey
 			) {
 				return;
 			}
@@ -371,7 +453,9 @@ export class LazyMediaLoader {
 				!this.disposed &&
 				!controller?.signal.aborted &&
 				state.visible &&
-				this.mediaStates.get(media) === state
+				this.mediaStates.get(media) === state &&
+				this.getThumbnailKey(state.item) === thumbnailKey &&
+				this.latestThumbnailKeys.get(state.item.file.path) === thumbnailKey
 			) {
 				if (Platform.isIosApp && state.item.kind === 'video') {
 					// Some WKWebView/local codec combinations can render native video
@@ -385,6 +469,9 @@ export class LazyMediaLoader {
 			}
 		} finally {
 			state.videoAbortController = null;
+			if (this.getThumbnailKey(state.item) !== thumbnailKey) {
+				state.thumbnailIdentityChanged = true;
+			}
 			const pending = (this.pendingThumbnailReferences.get(thumbnailKey) ?? 1) - 1;
 			if (pending > 0) this.pendingThumbnailReferences.set(thumbnailKey, pending);
 			else this.pendingThumbnailReferences.delete(thumbnailKey);
@@ -484,7 +571,7 @@ export class LazyMediaLoader {
 		return readyOrClosed;
 	}
 
-	private unload(media: LazyMediaElement, state: LazyMediaState): void {
+	private unload(media: LazyMediaElement, state: LazyMediaState, retainLoadedThumbnail = false): void {
 		state.nativeVideoCleanup?.();
 		if (state.videoAbortController) {
 			state.videoPreviewCancelled = true;
@@ -502,6 +589,14 @@ export class LazyMediaLoader {
 			media.removeAttribute('src');
 			media.load();
 		} else {
+			if (
+				retainLoadedThumbnail && state.attachedThumbnailKey &&
+				this.getMediaContainer(media)?.hasClass('is-loaded') &&
+				this.cache.has(state.attachedThumbnailKey)
+			) {
+				this.retainThumbnail(media, state);
+				return;
+			}
 			this.releaseThumbnail(media, state);
 		}
 		this.getMediaContainer(media)?.removeClass('is-loaded');
@@ -516,11 +611,40 @@ export class LazyMediaLoader {
 		if (!entry) {
 			return;
 		}
+		if (state.attachedThumbnailKey === result.key && media.src === entry.url) {
+			this.removeRetainedThumbnail(media);
+			if (!state.attachedThumbnailPinned) entry.references += 1;
+			state.attachedThumbnailPinned = true;
+			return;
+		}
+		this.getMediaContainer(media)?.removeClass('is-cached-preview');
 		entry.references += 1;
 		this.releaseThumbnail(media, state);
 		state.attachedThumbnailKey = result.key;
+		state.attachedThumbnailPinned = true;
+		entry.attachments.add(media);
 		this.getMediaContainer(media)?.removeClass('has-error');
 		media.src = result.url;
+	}
+
+	private attachCachedThumbnail(media: HTMLImageElement, state: LazyMediaState): boolean {
+		// Native iOS stills are live decoder resources, not exported thumbnails.
+		// Keep their existing teardown/re-entry path separate from this cache.
+		if (state.nativeVideoFallback) return false;
+		this.rememberThumbnailIdentity(state.item);
+		const key = this.getThumbnailKey(state.item);
+		const entry = this.cache.get(key);
+		if (!entry) return false;
+		this.cache.delete(key);
+		this.cache.set(key, entry);
+		this.attachThumbnail(media, state, { ...entry, key });
+		// The encoded thumbnail is already complete. Avoid another opacity fade
+		// when a decoded-source eviction requires assigning its cached URL again.
+		this.getMediaContainer(media)?.addClass('is-cached-preview');
+		this.getMediaContainer(media)?.addClass('is-loaded');
+		state.onAspectRatio?.(entry.aspectRatio);
+		if (entry.videoMetadata) state.onVideoMetadata?.(entry.videoMetadata);
+		return true;
 	}
 
 	private getMediaContainer(media: LazyMediaElement): HTMLElement | null {
@@ -533,14 +657,57 @@ export class LazyMediaLoader {
 		media: HTMLImageElement,
 		state: LazyMediaState,
 	): void {
+		this.detachThumbnail(media, state);
+		this.evictCache();
+	}
+
+	private detachThumbnail(media: HTMLImageElement, state: LazyMediaState): void {
+		this.removeRetainedThumbnail(media);
 		if (state.attachedThumbnailKey) {
 			const entry = this.cache.get(state.attachedThumbnailKey);
 			if (entry) {
-				entry.references = Math.max(0, entry.references - 1);
+				if (state.attachedThumbnailPinned) {
+					entry.references = Math.max(0, entry.references - 1);
+				}
+				entry.attachments.delete(media);
 			}
 			state.attachedThumbnailKey = null;
 		}
+		state.attachedThumbnailPinned = false;
 		media.removeAttribute('src');
+		this.getMediaContainer(media)?.removeClass('is-loaded');
+		this.getMediaContainer(media)?.removeClass('is-cached-preview');
+	}
+
+	private retainThumbnail(media: HTMLImageElement, state: LazyMediaState): void {
+		const entry = state.attachedThumbnailKey ? this.cache.get(state.attachedThumbnailKey) : null;
+		if (!entry) return;
+		if (state.attachedThumbnailPinned) {
+			entry.references = Math.max(0, entry.references - 1);
+			state.attachedThumbnailPinned = false;
+		}
+		if (!this.retainedThumbnails.has(media)) {
+			this.retainedThumbnails.set(media, state);
+			this.retainedSizeBytes += this.thumbnailMemoryBytes;
+		}
+		while (this.retainedSizeBytes > this.retainedBytes) {
+			const oldest = this.retainedThumbnails.entries().next().value;
+			if (!oldest) break;
+			this.detachThumbnail(...oldest);
+		}
+		this.evictCache();
+	}
+
+	private removeRetainedThumbnail(media: HTMLImageElement): void {
+		if (this.retainedThumbnails.delete(media)) {
+			this.retainedSizeBytes -= this.thumbnailMemoryBytes;
+		}
+	}
+
+	private rememberThumbnailIdentity(item: GalleryMedia): void {
+		const key = this.getThumbnailKey(item);
+		if (this.latestThumbnailKeys.get(item.file.path) === key) return;
+		this.latestThumbnailKeys.set(item.file.path, key);
 		this.evictCache();
 	}
 
@@ -555,7 +722,7 @@ export class LazyMediaLoader {
 		].join(':');
 	}
 
-	private async getThumbnail(file: TFile, key: string): Promise<ThumbnailResult> {
+	private async getThumbnail(item: GalleryMedia, key: string): Promise<ThumbnailResult> {
 		const cached = this.cache.get(key);
 		if (cached) {
 			this.cache.delete(key);
@@ -567,7 +734,7 @@ export class LazyMediaLoader {
 		if (pending) {
 			return pending;
 		}
-		const promise = this.generateThumbnail(file, key);
+		const promise = this.generateThumbnail(item, key);
 		this.inflight.set(key, promise);
 		try {
 			return await promise;
@@ -595,7 +762,7 @@ export class LazyMediaLoader {
 			resourceUrl: item.resourceUrl,
 			signal,
 		});
-		this.assertActive();
+		this.assertThumbnailActive(item, key);
 		if (signal.aborted) throw new Error('Video preview cancelled.');
 		// Independent callers may finish the same video concurrently on desktop.
 		// Reuse the existing URL without replacing an attached cache entry.
@@ -603,21 +770,26 @@ export class LazyMediaLoader {
 		if (completed) return { ...completed, key };
 		const entry: ThumbnailEntry = {
 			aspectRatio: preview.metadata.width / preview.metadata.height,
+			attachments: new Set(),
+			bytes: preview.blob.size,
+			filePath: item.file.path,
 			references: 0,
 			url: this.getUrlApi().createObjectURL(preview.blob),
 			videoMetadata: preview.metadata,
 		};
 		this.cache.set(key, entry);
+		this.cacheSizeBytes += entry.bytes;
 		this.evictCache(key);
 		return { ...entry, key };
 	}
 
 	private async generateThumbnail(
-		file: TFile,
+		item: GalleryMedia,
 		key: string,
 	): Promise<ThumbnailResult> {
+		const file = item.file;
 		const bytes = await this.app.vault.readBinary(file);
-		this.assertActive();
+		this.assertThumbnailActive(item, key);
 		const BlobConstructor = (
 			this.root.win as Window & { Blob: typeof Blob }
 		).Blob;
@@ -625,14 +797,18 @@ export class LazyMediaLoader {
 			type: getMediaMimeType(file.extension),
 		});
 		const dimensions = getEncodedImageDimensions(bytes, file.extension);
-		const thumbnail = await this.renderThumbnail(source, dimensions);
-		this.assertActive();
+		const thumbnail = await this.renderThumbnail(source, dimensions, () => this.assertThumbnailActive(item, key));
+		this.assertThumbnailActive(item, key);
 		const url = this.getUrlApi().createObjectURL(thumbnail.blob);
 		this.cache.set(key, {
 			aspectRatio: thumbnail.aspectRatio,
+			attachments: new Set(),
+			bytes: thumbnail.blob.size,
+			filePath: file.path,
 			references: 0,
 			url,
 		});
+		this.cacheSizeBytes += thumbnail.blob.size;
 		this.evictCache(key);
 		return { aspectRatio: thumbnail.aspectRatio, key, url };
 	}
@@ -640,6 +816,7 @@ export class LazyMediaLoader {
 	private async renderThumbnail(
 		source: Blob,
 		dimensions: ImageDimensions | null,
+		assertCurrent: () => void,
 	): Promise<{ aspectRatio: number; blob: Blob }> {
 		const rootWindow = this.root.win as Window & {
 			createImageBitmap?: typeof createImageBitmap;
@@ -655,7 +832,7 @@ export class LazyMediaLoader {
 					resizeWidth: target.width,
 				});
 				try {
-					this.assertActive();
+					assertCurrent();
 					const bitmapTarget = this.fitThumbnailSize(bitmap);
 					const canvas = this.drawToCanvas(
 						bitmap,
@@ -674,18 +851,19 @@ export class LazyMediaLoader {
 					bitmap.close();
 				}
 			} catch {
-				this.assertActive();
-				return this.renderThumbnailWithImage(source, dimensions);
+				assertCurrent();
+				return this.renderThumbnailWithImage(source, dimensions, assertCurrent);
 			}
 		}
-		return this.renderThumbnailWithImage(source, dimensions);
+		return this.renderThumbnailWithImage(source, dimensions, assertCurrent);
 	}
 
 	private async renderThumbnailWithImage(
 		source: Blob,
 		dimensions: ImageDimensions | null,
+		assertCurrent: () => void,
 	): Promise<{ aspectRatio: number; blob: Blob }> {
-		this.assertActive();
+		assertCurrent();
 		if (
 			Platform.isMobile &&
 			(!dimensions ||
@@ -702,7 +880,7 @@ export class LazyMediaLoader {
 		image.src = sourceUrl;
 		try {
 			await image.decode();
-			this.assertActive();
+			assertCurrent();
 			const target = this.fitThumbnailSize({
 				height: image.naturalHeight,
 				width: image.naturalWidth,
@@ -785,23 +963,50 @@ export class LazyMediaLoader {
 		}
 	}
 
+	private assertThumbnailActive(item: GalleryMedia, key: string): void {
+		this.assertActive();
+		if (this.getThumbnailKey(item) !== key || this.latestThumbnailKeys.get(item.file.path) !== key) {
+			throw new Error('Thumbnail identity changed.');
+		}
+	}
+
 	private getUrlApi(): typeof URL {
 		return (this.root.win as Window & { URL: typeof URL }).URL;
 	}
 
 	private evictCache(protectedKey?: string): void {
-		while (this.cache.size > this.cacheEntries) {
-			const candidate = [...this.cache].find(
-				([key, entry]) =>
-					key !== protectedKey && entry.references === 0 &&
-					!this.pendingThumbnailReferences.has(key),
-			);
-			if (!candidate) {
-				return;
+		// Identity changes invalidate old unpinned sources even under budget.
+		for (const [key, entry] of this.cache) {
+			if (this.latestThumbnailKeys.get(entry.filePath) !== key && this.isEvictable(key, entry, protectedKey)) {
+				this.removeCachedThumbnail(key, entry);
 			}
-			const [key, entry] = candidate;
-			this.cache.delete(key);
-			this.getUrlApi().revokeObjectURL(entry.url);
 		}
+		while (this.cache.size > this.cacheEntries || this.cacheSizeBytes > this.cacheBytes) {
+			let removed = false;
+			// Walk the LRU directly: avoid allocating a cache-sized array for every
+			// victim when a mobile scroll releases many sources at once.
+			for (const [key, entry] of this.cache) {
+				if (!this.isEvictable(key, entry, protectedKey)) continue;
+				this.removeCachedThumbnail(key, entry);
+				removed = true;
+				break;
+			}
+			if (!removed) return;
+		}
+	}
+
+	private isEvictable(key: string, entry: ThumbnailEntry, protectedKey?: string): boolean {
+		return key !== protectedKey && entry.references === 0 && !this.pendingThumbnailReferences.has(key);
+	}
+
+	private removeCachedThumbnail(key: string, entry: ThumbnailEntry): void {
+		for (const media of entry.attachments) {
+			const state = this.mediaStates.get(media);
+			if (state?.attachedThumbnailKey === key) this.detachThumbnail(media, state);
+			else entry.attachments.delete(media);
+		}
+		this.cache.delete(key);
+		this.cacheSizeBytes -= entry.bytes;
+		this.getUrlApi().revokeObjectURL(entry.url);
 	}
 }

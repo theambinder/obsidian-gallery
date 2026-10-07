@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.9.8 - 2026-10-07
+
+### Changed
+
+- Replace the percentage slider with 20 fixed numbered scale levels while retaining full-width rows and the original responsive grid behavior.
+- Extend tile sizes beyond the previous 500% limit for larger thumbnails in wide panes.
+- Use smaller default desktop tiles to fit four columns in a typical sidebar, without changing mobile defaults.
+- Reduce mobile viewer bottom spacing while retaining system safe areas.
+- Keep the optional diagnostic command out of the mobile command palette.
+- Reuse viewed thumbnails in a bounded cache while the note stays open, without loading all media in advance.
+- Prioritize visible images and allow mobile image previews to load independently of a slow video.
+
+### Fixed
+
+- Use consistent crisp keyboard focus outlines for desktop gallery controls and tiles.
+- Keep the first tile's outline inside its bounds so pinned headings cannot clip it.
+- Retain visible whole-image thumbnails at the smallest tile scales.
+- Avoid repeated thumbnail fades and unnecessary decoding-queue waits when returning to previously viewed tiles.
+- Skip rebuilding media-tracking keys when note updates do not change the gallery.
+- Keep existing saved tile scales without rewriting them when settings open, and preserve the original reset size at level 8.
+
 ## 0.9.7 - 2026-10-07
 
 ### Added

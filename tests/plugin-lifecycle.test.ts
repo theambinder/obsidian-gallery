@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
 import { build } from 'esbuild';
+import { TILE_SCALE_PRESETS, tileScaleToLevel } from '../src/gallery-tile-size';
 
 interface TestPlugin {
 	onload(): Promise<void>;
@@ -42,6 +43,7 @@ const pluginBundle = build({
 }).then((result) => result.outputFiles[0]!.text);
 
 async function harness(options: {
+	isMobile?: boolean;
 	data?: Promise<unknown>;
 	saveData?: (data: unknown) => Promise<void>;
 	setViewState?: Promise<void>;
@@ -87,6 +89,7 @@ async function harness(options: {
 			on: () => ({}),
 			onLayoutReady: (callback: () => void) => { layoutCallbacks.push(callback); },
 			getActiveFile: () => null,
+			getActiveViewOfType: () => null,
 			getLeavesOfType: () => hasLeaf ? [leaf] : [],
 			getRightLeaf: () => leaf,
 			revealLeaf: () => {
@@ -135,7 +138,7 @@ async function harness(options: {
 			Modal: class {},
 			MarkdownView: class {},
 			TFile: class {},
-			Platform: { isMobile: true },
+			Platform: { isMobile: options.isMobile ?? true },
 			Notice: class { constructor(message: string) { notices.push(message); } },
 		} : nodeRequire(specifier) as unknown,
 	});
@@ -226,12 +229,24 @@ void test('tile scale loads with the saved layout and applies live to existing v
 	assert.equal(h.plugin.getLayoutMode(), 'aspect');
 	assert.equal(h.plugin.getTileScale(), 140);
 	await h.plugin.setTileScale(123);
-	assert.equal(h.plugin.getTileScale(), 120);
-	assert.deepEqual(h.calls.scales, [120]);
-	assert.deepEqual(h.calls.saved, [{ layoutMode: 'aspect', tileScale: 120, showSections: true, custom: true, version: 1 }]);
+	assert.equal(h.plugin.getTileScale(), 123);
+	assert.deepEqual(h.calls.scales, [123]);
+	assert.deepEqual(h.calls.saved, [{ layoutMode: 'aspect', tileScale: 123, showSections: true, custom: true, version: 1 }]);
 	await h.plugin.setLayoutMode('square');
 	assert.deepEqual(h.calls.layouts, ['square']);
-	assert.deepEqual(h.calls.saved.at(-1), { layoutMode: 'square', tileScale: 120, showSections: true, custom: true, version: 1 });
+	assert.deepEqual(h.calls.saved.at(-1), { layoutMode: 'square', tileScale: 123, showSections: true, custom: true, version: 1 });
+});
+
+void test('saved tile numbers remain stable on desktop and mobile without measuring a gallery pane', async () => {
+	for (const isMobile of [false, true]) {
+		const h = await harness({ isMobile, data: Promise.resolve({ tileScale: 380 }) });
+		await h.plugin.onload();
+		assert.equal(h.plugin.getTileScale(), 380);
+		const before = tileScaleToLevel(h.plugin.getTileScale());
+		h.makeExistingView();
+		assert.equal(tileScaleToLevel(h.plugin.getTileScale()), before);
+		assert.deepEqual(h.calls.saved, []);
+	}
 });
 
 void test('section visibility loads and applies live without altering layout or tile scale', async () => {
@@ -246,6 +261,40 @@ void test('section visibility loads and applies live without altering layout or 
 	assert.deepEqual(h.calls.saved.at(-1), { layoutMode: 'aspect', tileScale: 30, showSections: true, version: 1 });
 	assert.deepEqual(h.calls.scales, []);
 	assert.deepEqual(h.calls.layouts, []);
+});
+
+void test('the fixed largest tile size persists across plugin restart and resets without changing other settings', async () => {
+	const h = await harness({
+		isMobile: false,
+		data: Promise.resolve({ layoutMode: 'aspect', tileScale: 380, showSections: false, custom: true }),
+	});
+	await h.plugin.onload();
+	h.makeExistingView();
+	const largest = TILE_SCALE_PRESETS.at(-1)!;
+	assert.equal(largest, 2000);
+	assert.equal(h.plugin.getTileScale(), 380, 'Opening the plugin must not rewrite a legacy scale');
+	assert.deepEqual(h.calls.saved, []);
+	await h.plugin.setTileScale(largest);
+	assert.equal(h.plugin.getTileScale(), largest);
+	assert.deepEqual(h.calls.scales, [largest]);
+	assert.deepEqual(h.calls.saved.at(-1), {
+		layoutMode: 'aspect', tileScale: largest, showSections: false, custom: true, version: 1,
+	});
+	h.plugin.onunload();
+	const restarted = await harness({
+		isMobile: false,
+		data: Promise.resolve(JSON.parse(JSON.stringify(h.calls.saved.at(-1)))),
+	});
+	await restarted.plugin.onload();
+	restarted.makeExistingView();
+	assert.equal(restarted.plugin.getTileScale(), largest);
+	assert.equal(tileScaleToLevel(restarted.plugin.getTileScale()), 20);
+	assert.deepEqual(restarted.calls.saved, []);
+	await restarted.plugin.setTileScale(100);
+	assert.equal(restarted.plugin.getTileScale(), 100);
+	assert.deepEqual(restarted.calls.saved.at(-1), {
+		layoutMode: 'aspect', tileScale: 100, showSections: false, custom: true, version: 1,
+	});
 });
 
 void test('concurrent scale, layout and section updates serialize persistence without stale overwrites', async () => {
@@ -302,6 +351,23 @@ void test('disabled plugin does not accept or persist new settings changes', asy
 	assert.equal(h.plugin.getLayoutMode(), 'square');
 	assert.equal(h.plugin.getShowSections(), true);
 	assert.equal(h.calls.saved.length, 0);
+});
+
+void test('mobile exposes gallery commands without a diagnostic command', async () => {
+	const h = await harness({ isMobile: true });
+	await h.plugin.onload();
+	assert.deepEqual([...h.commands.keys()], ['open-media', 'focus-media']);
+	assert.equal(h.diagnostics.length, 0);
+});
+
+void test('desktop retains the optional diagnostic command and closes its report on unload', async () => {
+	const h = await harness({ isMobile: false });
+	await h.plugin.onload();
+	assert.deepEqual([...h.commands.keys()], ['open-media', 'focus-media', 'show-mobile-diagnostics']);
+	h.commands.get('show-mobile-diagnostics')!();
+	assert.equal(h.diagnostics.length, 1);
+	h.plugin.onunload();
+	assert.equal(h.diagnostics[0]!.closed, 1);
 });
 
 void test('diagnostics are tracked until closed and remaining reports close on plugin unload', async () => {

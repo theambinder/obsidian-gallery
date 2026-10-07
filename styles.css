@@ -25,6 +25,12 @@ body.is-mobile .modal.section-gallery-lightbox {
 	position: relative;
 }
 
+/* Standard desktop sidebars need four useful columns at the default scale. Keep the
+   existing touch grid size independent of this denser desktop baseline. */
+body:not(.is-mobile) .section-gallery-view {
+	--section-gallery-tile-min: 56px;
+}
+
 .section-gallery-view .section-gallery-content {
 	padding: 0 8px calc(12px + var(--section-gallery-safe-bottom));
 	background: var(--background-secondary);
@@ -132,6 +138,22 @@ body:not(.is-mobile)
 	outline-offset: -2px;
 }
 
+/* Match the tile's crisp keyboard ring instead of the native control glow.
+   The input's pointer-focus state loses only its shadow, not its native border. */
+body:not(.is-mobile) .section-gallery-view .section-gallery-toolbar-button:focus,
+body:not(.is-mobile) .section-gallery-view .section-gallery-search-input:focus,
+body:not(.is-mobile) .section-gallery-view .section-gallery-search-clear:focus {
+	box-shadow: none;
+}
+
+body:not(.is-mobile) .section-gallery-view .section-gallery-toolbar-button:focus-visible,
+body:not(.is-mobile) .section-gallery-view .section-gallery-search-input:focus-visible,
+body:not(.is-mobile) .section-gallery-view .section-gallery-search-clear:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -2px;
+	box-shadow: none;
+}
+
 .section-gallery-view .section-gallery-search-status {
 	position: absolute;
 	width: 1px;
@@ -229,6 +251,17 @@ body:not(.is-mobile)
 }
 
 .section-gallery-view .section-gallery-tile {
+	/* A fixed 3px inset would consume a tile at the 10% scale. Percentages
+   resolve against this square tile, preserving an 80% media area at worst. */
+	--section-gallery-effective-fit-inset: min(var(--section-gallery-fit-inset), 10%);
+	/* Filename/duration labels remain in the accessible tile name. Their
+   noninteractive visual overlays must not cover 10–20% thumbnails. */
+	--section-gallery-tile-overlay-opacity: clamp(
+		0,
+		calc((var(--section-gallery-tile-scale, 1) - 0.2) * 10),
+		1
+	);
+
 	position: relative;
 	display: block;
 	width: 100%;
@@ -261,6 +294,15 @@ body:not(.is-mobile)
 .section-gallery-view .section-gallery-tile.is-last-viewed:focus-visible {
 	outline: 2px solid var(--interactive-accent);
 	outline-offset: 1px;
+}
+
+/* Keep the entire desktop ring inside the tile's paint containment. This
+   avoids losing its top edge under a sticky summary, without lifting tiles
+   above that opaque header while the grid scrolls behind it. */
+body:not(.is-mobile) .section-gallery-view .section-gallery-tile:focus-visible,
+body:not(.is-mobile) .section-gallery-view .section-gallery-tile.is-last-viewed,
+body:not(.is-mobile) .section-gallery-view .section-gallery-tile.is-last-viewed:focus-visible {
+	outline-offset: -2px;
 }
 
 .section-gallery-view .section-gallery-tile.is-search-match {
@@ -304,6 +346,7 @@ body:not(.is-mobile)
 	line-height: 1.2;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+	opacity: var(--section-gallery-tile-overlay-opacity);
 	pointer-events: none;
 }
 
@@ -321,7 +364,7 @@ body:not(.is-mobile)
 	height: 100%;
 	opacity: 0;
 	object-fit: cover;
-	transition: opacity 120ms ease-out;
+	transition: opacity var(--section-gallery-thumbnail-fade-duration, 120ms) ease-out;
 	pointer-events: none;
 }
 
@@ -331,17 +374,17 @@ body:not(.is-mobile)
 
 .section-gallery-view .section-gallery-grid.is-fit .section-gallery-thumbnail {
 	position: absolute;
-	top: var(--section-gallery-fit-inset);
-	right: var(--section-gallery-fit-inset);
-	bottom: var(--section-gallery-fit-inset);
-	left: var(--section-gallery-fit-inset);
+	top: var(--section-gallery-effective-fit-inset);
+	right: var(--section-gallery-effective-fit-inset);
+	bottom: var(--section-gallery-effective-fit-inset);
+	left: var(--section-gallery-effective-fit-inset);
 	width: calc(
-		100% - var(--section-gallery-fit-inset) -
-			var(--section-gallery-fit-inset)
+		100% - var(--section-gallery-effective-fit-inset) -
+			var(--section-gallery-effective-fit-inset)
 	);
 	height: calc(
-		100% - var(--section-gallery-fit-inset) -
-			var(--section-gallery-fit-inset)
+		100% - var(--section-gallery-effective-fit-inset) -
+			var(--section-gallery-effective-fit-inset)
 	);
 	border-radius: calc(var(--section-gallery-radius) - 1px);
 	object-fit: contain;
@@ -373,10 +416,10 @@ body:not(.is-mobile)
 }
 
 .section-gallery-view .section-gallery-grid.is-fit .section-gallery-video-frame {
-	top: var(--section-gallery-fit-inset);
-	right: var(--section-gallery-fit-inset);
-	bottom: var(--section-gallery-fit-inset);
-	left: var(--section-gallery-fit-inset);
+	top: var(--section-gallery-effective-fit-inset);
+	right: var(--section-gallery-effective-fit-inset);
+	bottom: var(--section-gallery-effective-fit-inset);
+	left: var(--section-gallery-effective-fit-inset);
 	border-radius: calc(var(--section-gallery-radius) - 1px);
 }
 
@@ -401,6 +444,11 @@ body:not(.is-mobile)
 
 .section-gallery-view .section-gallery-tile.is-loaded .section-gallery-thumbnail {
 	opacity: 1;
+}
+
+.section-gallery-view .section-gallery-tile.is-cached-preview,
+.modal.section-gallery-lightbox .section-gallery-filmstrip-item.is-cached-preview {
+	--section-gallery-thumbnail-fade-duration: 0ms;
 }
 
 .section-gallery-view .section-gallery-tile.has-error::before,
@@ -445,6 +493,7 @@ body:not(.is-mobile)
 	font-size: var(--font-smallest);
 	line-height: 1.2;
 	text-align: center;
+	opacity: var(--section-gallery-tile-overlay-opacity);
 }
 
 .section-gallery-view .section-gallery-video-duration {
@@ -453,7 +502,7 @@ body:not(.is-mobile)
 	bottom: 4px;
 	z-index: 3;
 	display: block;
-	max-width: calc(100% - 8px);
+	max-width: max(0px, calc(100% - 8px));
 	padding: 2px 4px;
 	overflow: hidden;
 	color: white;
@@ -467,6 +516,7 @@ body:not(.is-mobile)
 	text-overflow: ellipsis;
 	text-shadow: 0 1px 1px rgb(0 0 0 / 48%);
 	white-space: nowrap;
+	opacity: var(--section-gallery-tile-overlay-opacity);
 	pointer-events: none;
 }
 
@@ -483,9 +533,12 @@ body:not(.is-mobile)
 	bottom: calc(
 		var(--section-gallery-video-block-offset, 0%) + 4px
 	);
-	max-width: calc(
-		100% - var(--section-gallery-video-inline-offset, 0%) -
-			var(--section-gallery-video-inline-offset, 0%) - 8px
+	max-width: max(
+		0px,
+		calc(
+			100% - var(--section-gallery-video-inline-offset, 0%) -
+				var(--section-gallery-video-inline-offset, 0%) - 8px
+		)
 	);
 }
 
@@ -1220,7 +1273,7 @@ body.is-mobile.section-gallery-lightbox-open
 			var(--section-gallery-layout-easing),
 		height var(--section-gallery-selection-duration)
 			var(--section-gallery-layout-easing),
-		opacity 120ms ease-out;
+		opacity var(--section-gallery-thumbnail-fade-duration, 120ms) ease-out;
 	pointer-events: none;
 }
 
@@ -2044,11 +2097,11 @@ body.theme-light.is-mobile
 	);
 }
 
-/* A symmetric chrome reserve preserves the safe-area center when chrome is
-   hidden. A width-limited image then stays put instead of dropping downward. */
+/* Trim the portrait chrome reserve equally at both edges so a width-limited
+   image keeps its safe-area center when the controls are hidden. */
 body.is-mobile .modal.section-gallery-lightbox .section-gallery-lightbox-stage {
-	padding-top: calc(132px + var(--section-gallery-safe-top));
-	padding-bottom: calc(132px + var(--section-gallery-safe-bottom));
+	padding-top: calc(124px + var(--section-gallery-safe-top));
+	padding-bottom: calc(124px + var(--section-gallery-safe-bottom));
 }
 
 body.is-mobile
@@ -2082,6 +2135,28 @@ body.is-mobile .modal.section-gallery-lightbox .section-gallery-lightbox-header 
 	right: max(10px, var(--section-gallery-safe-right));
 	left: max(10px, var(--section-gallery-safe-left));
 	gap: 7px;
+}
+
+/* Keep the 44px controls and their full safe inset; only trim the space
+   between the footer and carousel. Metadata retains its own panel offset. */
+body.is-mobile .modal.section-gallery-lightbox .section-gallery-lightbox-bottom {
+	bottom: calc(56px + var(--section-gallery-safe-bottom));
+}
+
+body.is-mobile
+	.modal.section-gallery-lightbox.is-info-open
+	.section-gallery-lightbox-bottom {
+	bottom: calc(var(--section-gallery-info-height) + 12px);
+}
+
+body.is-mobile .modal.section-gallery-lightbox .section-gallery-lightbox-footer {
+	bottom: calc(8px + var(--section-gallery-safe-bottom));
+}
+
+body.is-mobile
+	.modal.section-gallery-lightbox
+	.section-gallery-lightbox-info-scroll {
+	bottom: calc(52px + var(--section-gallery-safe-bottom));
 }
 
 body.is-phone .modal.section-gallery-lightbox .section-gallery-lightbox-bottom {
@@ -2299,11 +2374,26 @@ body.is-phone .modal.section-gallery-lightbox .section-gallery-lightbox-footer {
 }
 
 @media (orientation: portrait) and (max-height: 560px) {
-	/* Compact portrait WebViews need the same stable center as taller phones. */
-	body.is-mobile .modal.section-gallery-lightbox .section-gallery-lightbox-stage,
+	/* Keep 8px above the carousel without sacrificing the stable center.
+	   Phones have a 50px carousel; other touch layouts reserve its full 54px. */
+	body.is-mobile .modal.section-gallery-lightbox .section-gallery-lightbox-stage {
+		padding-top: calc(118px + var(--section-gallery-safe-top));
+		padding-bottom: calc(118px + var(--section-gallery-safe-bottom));
+	}
+
+	body.is-phone .modal.section-gallery-lightbox .section-gallery-lightbox-stage {
+		padding-top: calc(114px + var(--section-gallery-safe-top));
+		padding-bottom: calc(114px + var(--section-gallery-safe-bottom));
+	}
+
 	body.is-mobile .modal.section-gallery-lightbox.is-info-open .section-gallery-lightbox-stage {
-		padding-top: calc(86px + var(--section-gallery-safe-top));
-		padding-bottom: calc(86px + var(--section-gallery-safe-bottom));
+		padding-top: calc(74px + var(--section-gallery-safe-top));
+		padding-bottom: calc(74px + var(--section-gallery-safe-bottom));
+	}
+
+	body.is-phone .modal.section-gallery-lightbox.is-info-open .section-gallery-lightbox-stage {
+		padding-top: calc(70px + var(--section-gallery-safe-top));
+		padding-bottom: calc(70px + var(--section-gallery-safe-bottom));
 	}
 }
 
@@ -2347,7 +2437,7 @@ body.is-android .modal.section-gallery-lightbox .section-gallery-lightbox-footer
 }
 
 .section-gallery-safe-area-probe {
-	--section-gallery-build-version: 0.9.7;
+	--section-gallery-build-version: 0.9.8;
 
 	position: fixed;
 	visibility: hidden;

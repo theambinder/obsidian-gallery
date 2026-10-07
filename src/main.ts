@@ -1,6 +1,7 @@
 import {
 	MarkdownView,
 	Notice,
+	Platform,
 	Plugin,
 	TFile,
 	type Modal,
@@ -64,11 +65,13 @@ export default class SectionGalleryPlugin extends Plugin {
 				this.openGalleryFromCommand(true);
 			},
 		});
-		this.addCommand({
-			id: 'show-mobile-diagnostics',
-			name: 'Show mobile diagnostics',
-			callback: () => this.showDiagnostics(),
-		});
+		if (!Platform.isMobile) {
+			this.addCommand({
+				id: 'show-mobile-diagnostics',
+				name: 'Show mobile diagnostics',
+				callback: () => this.showDiagnostics(),
+			});
+		}
 
 		this.registerEvent(
 			this.app.workspace.on('file-open', (file) => {

@@ -276,7 +276,6 @@ export class SectionGalleryView extends ItemView {
 		}
 
 		const nextItems = this.createGalleryItems(note, cache);
-		const nextTrackingKeys = buildLastViewedMediaKeys(nextItems);
 		const nextTree = buildMediaSectionTree(nextItems, 'No heading');
 		const noteChanged = clearGallerySearchCollapseForNoteChange(
 			this.currentNotePath,
@@ -289,11 +288,11 @@ export class SectionGalleryView extends ItemView {
 		const signature = this.createVisualSignature(note, nextItems);
 		if (!force && signature === this.renderSignature) {
 			this.items = nextItems;
-			this.mediaTrackingKeys = nextTrackingKeys;
 			this.currentTree = nextTree;
 			return;
 		}
 
+		const nextTrackingKeys = buildLastViewedMediaKeys(nextItems);
 		const shouldRestoreSearchFocus =
 			this.searchComponent?.inputEl ===
 			this.contentEl.ownerDocument.activeElement;

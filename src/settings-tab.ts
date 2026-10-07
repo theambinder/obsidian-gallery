@@ -1,10 +1,6 @@
 import { Notice, PluginSettingTab, type App, type Plugin, type SettingDefinitionItem } from 'obsidian';
-import {
-	DEFAULT_TILE_SCALE,
-	MAX_TILE_SCALE,
-	MIN_TILE_SCALE,
-	TILE_SCALE_STEP,
-} from './settings';
+import { DEFAULT_TILE_SCALE } from './settings';
+import { MIN_TILE_SIZE_LEVEL, MAX_TILE_SIZE_LEVEL, tileLevelToScale, tileScaleToLevel } from './gallery-tile-size';
 
 interface GallerySettingsHost {
 	getTileScale(): number;
@@ -32,18 +28,18 @@ export class GallerySettingsTab extends PluginSettingTab {
 		return [
 			{
 				name: 'Tile scale',
-				desc: 'Larger tiles show fewer items at the same sidebar width. Changes apply immediately; 100% is the original size.',
+				desc: 'Choose a fixed size from 1 to 20. Larger sizes show fewer tiles. Resizing the panel does not change this setting.',
 				aliases: ['size', 'zoom', 'thumbnails'],
 				render: (setting) => {
 					setting.setClass('section-gallery-tile-scale-setting');
 					setting.addSlider((slider) => {
 						slider
-							.setLimits(MIN_TILE_SCALE, MAX_TILE_SCALE, TILE_SCALE_STEP)
-							.setValue(this.host.getTileScale())
-							.setDisplayFormat((value) => `${value}%`)
+							.setLimits(MIN_TILE_SIZE_LEVEL, MAX_TILE_SIZE_LEVEL, 1)
+							.setValue(tileScaleToLevel(this.host.getTileScale()))
+							.setDisplayFormat(String)
 							.setInstant(true)
 							.onChange((value) => {
-								void this.host.setTileScale(value).catch(() => {
+								void this.host.setTileScale(tileLevelToScale(value)).catch(() => {
 									new Notice('Could not save the tile scale. Please try again.');
 								});
 							});

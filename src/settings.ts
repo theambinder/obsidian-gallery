@@ -1,9 +1,9 @@
 import type { GalleryLayoutMode } from './types';
 
 export const DEFAULT_TILE_SCALE = 100;
-export const MIN_TILE_SCALE = 30;
-export const MAX_TILE_SCALE = 180;
-export const TILE_SCALE_STEP = 10;
+export const MIN_TILE_SCALE = 10;
+// Safety limit preserves earlier saved preview scales; the UI uses fixed presets.
+export const MAX_TILE_SCALE = 100_000;
 
 export interface GallerySettings extends Record<string, unknown> {
 	layoutMode: GalleryLayoutMode;
@@ -18,7 +18,7 @@ export function normalizeTileScale(value: unknown): number {
 	}
 	return Math.min(
 		MAX_TILE_SCALE,
-		Math.max(MIN_TILE_SCALE, Math.round(value / TILE_SCALE_STEP) * TILE_SCALE_STEP),
+		Math.max(MIN_TILE_SCALE, value),
 	);
 }
 

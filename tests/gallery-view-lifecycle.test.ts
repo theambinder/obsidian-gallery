@@ -6,7 +6,7 @@ import { build } from 'esbuild';
 import { TILE_RENDER_BATCH_SIZE } from '../src/constants';
 import { buildMediaIndex, buildMediaSectionTree } from '../src/media-index';
 import { buildVisibleMediaProjection } from '../src/gallery-search';
-import type { MediaSectionTree } from '../src/types';
+import type { IndexedMedia, MediaFileLike, MediaSectionTree } from '../src/types';
 import type { VideoTileMetadata } from '../src/video-metadata';
 
 interface TileTask {
@@ -25,6 +25,7 @@ interface TestTile {
 	focus(): void;
 	scrollIntoView(): void;
 }
+
 
 interface TestGalleryView {
 	app: { metadataCache: { getFileCache(note: object): object | null } };
@@ -67,8 +68,10 @@ interface TestGalleryView {
 	setTileScale(value: number): void;
 	setShowSections(show: boolean): void;
 	refreshVisibleMedia(): void;
-	refresh(): void;
+	refresh(force?: boolean): void;
+	createGalleryItems(note: object, cache: object): object[];
 	renderEmptyState(message: string): void;
+	renderSummary(count: number, restoreSearchFocus: boolean): void;
 	setupResizeHandling(): void;
 	updateKeyboardFocusState(): void;
 	scheduleKeyboardFocusState(): void;
@@ -162,6 +165,9 @@ async function createView(host: object = {}): Promise<{
 	notices: string[];
 	menuCalls: MenuCall[];
 	css: Record<string, string>;
+	cssWrites: Record<string, string>[];
+	resizeListeners: Set<() => void>;
+	setContentWidth(width: number): void;
 	classes: Set<string>;
 	setFocusVisible(value: boolean): void;
 	focusQueries: () => number;
@@ -174,12 +180,17 @@ async function createView(host: object = {}): Promise<{
 	const menuCalls: MenuCall[] = [];
 	const View = (await viewConstructor)(notices, menuCalls);
 	const css: Record<string, string> = {};
+	const cssWrites: Record<string, string>[] = [];
+	const resizeListeners = new Set<() => void>();
 	const classes = new Set<string>();
 	let focusVisible = false;
 	let focusQueries = 0;
 	const view = new View({
 		containerEl: {
-			setCssProps: (props: Record<string, string>) => Object.assign(css, props),
+			setCssProps(props: Record<string, string>): void {
+				Object.assign(css, props);
+				cssWrites.push(props);
+			},
 			addClass(name: string): void { classes.add(name); },
 			removeClass(...names: string[]): void { for (const name of names) classes.delete(name); },
 			toggleClass(name: string, enabled: boolean): void { if (enabled) classes.add(name); else classes.delete(name); },
@@ -191,6 +202,7 @@ async function createView(host: object = {}): Promise<{
 			createSpan: () => ({ id: '', remove(): void {} }),
 		},
 		contentEl: {
+			clientWidth: 0,
 			addClass(): void {},
 			setAttr(): void {},
 			before(): void {},
@@ -199,7 +211,12 @@ async function createView(host: object = {}): Promise<{
 			querySelectorAll: () => [],
 			removeAttribute(): void {},
 			win: {
-				removeEventListener(): void {},
+				addEventListener(type: string, callback: () => void): void {
+					if (type === 'resize') resizeListeners.add(callback);
+				},
+				removeEventListener(type: string, callback: () => void): void {
+					if (type === 'resize') resizeListeners.delete(callback);
+				},
 				setTimeout(callback: () => void): number { timers.set(++nextTimer, callback); return nextTimer; },
 				clearTimeout(timer: number): void { timers.delete(timer); },
 				requestAnimationFrame(callback: FrameRequestCallback): number {
@@ -215,6 +232,9 @@ async function createView(host: object = {}): Promise<{
 	return {
 		view,
 		css,
+		cssWrites,
+		resizeListeners,
+		setContentWidth: (width: number): void => { Object.assign(view.contentEl, { clientWidth: width }); },
 		classes,
 		setFocusVisible: (value: boolean): void => { focusVisible = value; },
 		focusQueries: () => focusQueries,
@@ -324,18 +344,57 @@ function installRenderedContent(view: TestGalleryView): RenderElement {
 	return content;
 }
 
-function mediaFixture(): { items: object[]; tree: MediaSectionTree } {
-	const names = ['first.jpg', 'movie.mp4', 'last.jpg'];
+function mediaFixture({
+	offsetShift = 0,
+	names = ['first.jpg', 'movie.mp4', 'last.jpg'],
+	firstHeading = 'Alpha',
+}: {
+	offsetShift?: number;
+	names?: readonly string[];
+	firstHeading?: string;
+} = {}): { items: IndexedMedia<MediaFileLike>[]; tree: MediaSectionTree } {
 	const media = buildMediaIndex(
-		names.map((link, index) => ({ link, position: { offset: index * 10 + 10, line: index, column: 0 } })),
+		names.map((link, index) => ({ link, position: { offset: offsetShift + index * 10 + 10, line: index, column: 0 } })),
 		[
-			{ heading: 'Alpha', level: 1, position: { offset: 0 } },
-			{ heading: 'Beta', level: 1, position: { offset: 25 } },
+			{ heading: firstHeading, level: 1, position: { offset: offsetShift } },
+			{ heading: 'Beta', level: 1, position: { offset: offsetShift + 25 } },
 		],
 		(link) => ({ name: link, path: link, extension: link.split('.').at(-1)!, stat: { mtime: 1, size: 2 } }),
 		'No heading',
 	);
 	return { items: media, tree: buildMediaSectionTree(media, 'No heading') };
+}
+
+function installViewResizeObserver(view: TestGalleryView): {
+	observed: object[];
+	notify(): void;
+	isDisconnected(): boolean;
+} {
+	const observed: object[] = [];
+	let disconnected = false;
+	let notify: () => void = () => undefined;
+	Object.assign((view.contentEl as { win: object }).win, {
+		ResizeObserver: class {
+			constructor(callback: typeof notify) { notify = callback; }
+			observe(element: object): void { observed.push(element); }
+			disconnect(): void { disconnected = true; }
+		},
+	});
+	return { observed, notify: (): void => { notify(); }, isDisconnected: (): boolean => disconnected };
+}
+
+function prepareRefreshView(view: TestGalleryView): void {
+	view.app = { metadataCache: { getFileCache: () => ({}) } };
+	Object.assign(view.contentEl, {
+		ownerDocument: { activeElement: null },
+		addEventListener(): void {},
+		removeEventListener(): void {},
+	});
+	Object.assign((view.contentEl as { win: object }).win, {
+		addEventListener(): void {},
+	});
+	view.renderSummary = () => undefined;
+	view.renderCurrentProjection = () => undefined;
 }
 
 void test('flat tiles ignore saved collapse choices but retain content order, heading search, and viewer filtering', async () => {
@@ -537,15 +596,157 @@ void test('pending note metadata uses plain-language loading copy and deduplicat
 	assert.equal(messages.length, 1, 'unchanged pending metadata does not render twice');
 });
 
+void test('unchanged refresh retains tracking keys but adopts fresh media and section offsets', async () => {
+	const note = { path: 'gallery.md', basename: 'gallery' };
+	const { view } = await createView({ getActiveNote: () => note });
+	prepareRefreshView(view);
+	let fixture = mediaFixture();
+	view.createGalleryItems = () => fixture.items;
+	view.refresh();
+	const keys = view.mediaTrackingKeys;
+	const tree = view.currentTree;
+	const revision = view.renderRevision;
+	const loader = view.lazyLoader;
+
+	fixture = mediaFixture({ offsetShift: 50 });
+	view.refresh();
+	assert.equal(view.mediaTrackingKeys, keys, 'unchanged ordered media reuses the tracking key array');
+	assert.equal(view.items, fixture.items, 'fresh media objects retain current embed positions');
+	assert.equal(fixture.items[0]!.source.offset, 60);
+	assert.notEqual(view.currentTree, tree, 'section source offsets must not remain stale');
+	assert.deepEqual(Array.from((view.currentTree as MediaSectionTree).children, section => section.sourceOffset), [50, 75]);
+	assert.equal(view.renderRevision, revision, 'unchanged visual content does not rerender');
+	assert.equal(view.lazyLoader, loader, 'unchanged visual content keeps its loader');
+	await view.onClose();
+});
+
+void test('forced refresh recomputes tracking keys even with an unchanged visual signature', async () => {
+	const note = { path: 'gallery.md', basename: 'gallery' };
+	const { view } = await createView({ getActiveNote: () => note });
+	prepareRefreshView(view);
+	const fixture = mediaFixture({ names: ['same.jpg', 'same.jpg', 'last.jpg'] });
+	view.createGalleryItems = () => fixture.items;
+	view.refresh();
+	const keys = view.mediaTrackingKeys;
+	const revision = view.renderRevision;
+	view.refresh(true);
+	assert.notEqual(view.mediaTrackingKeys, keys, 'force bypasses tracking key reuse');
+	assert.deepEqual(Array.from(view.mediaTrackingKeys), Array.from(keys), 'duplicate occurrence identities remain stable');
+	assert.ok(view.renderRevision > revision, 'force still rebuilds the projection');
+	await view.onClose();
+});
+
+void test('media reordering and heading changes invalidate tracking key reuse', async () => {
+	for (const change of [
+		{ names: ['movie.mp4', 'first.jpg', 'last.jpg'] },
+		{ firstHeading: 'Renamed' },
+	]) {
+		const note = { path: 'gallery.md', basename: 'gallery' };
+		const { view } = await createView({ getActiveNote: () => note });
+		prepareRefreshView(view);
+		let fixture = mediaFixture();
+		view.createGalleryItems = () => fixture.items;
+		view.refresh();
+		const keys = view.mediaTrackingKeys;
+		const revision = view.renderRevision;
+		fixture = mediaFixture(change);
+		view.refresh();
+		assert.notEqual(view.mediaTrackingKeys, keys, 'changed signature recomputes keys');
+		assert.notDeepEqual(Array.from(view.mediaTrackingKeys), Array.from(keys));
+		assert.ok(view.renderRevision > revision, 'changed content still rebuilds the projection');
+		await view.onClose();
+	}
+});
+
 void test('tile scale changes only the scoped layout variable without rebuilding tiles', async () => {
 	const { view, css, pendingFrames } = await createView();
 	const revision = view.renderRevision;
 	view.setTileScale(146);
-	assert.equal(css['--section-gallery-tile-scale'], '1.5');
+	assert.equal(css['--section-gallery-tile-scale'], '1.46');
 	assert.equal(view.renderRevision, revision);
 	assert.equal(pendingFrames(), 0);
 	view.setTileScale(10000);
-	assert.equal(css['--section-gallery-tile-scale'], '1.8');
+	assert.equal(css['--section-gallery-tile-scale'], '100');
+	view.setTileScale(1000000);
+	assert.equal(css['--section-gallery-tile-scale'], '1000', 'Malformed extremes remain safety bounded');
+	assert.equal(view.renderRevision, revision, 'Large tiles still resize without rebuilding previews');
+});
+
+void test('pane ResizeObserver preserves the selected scale and media state while updating visibility only', async () => {
+	const h = await createView({ getLayoutMode: () => 'square', getTileScale: () => 150 });
+	const observer = installViewResizeObserver(h.view);
+	h.view.refresh = () => undefined;
+	await h.view.onOpen();
+	assert.deepEqual(observer.observed, [h.view.contentEl], 'Only the existing content is observed');
+	const fixture = mediaFixture();
+	const keys = ['first', 'movie', 'last'];
+	let refreshed = 0;
+	let disconnected = 0;
+	const loader = { refreshVisibility(): void { refreshed += 1; }, disconnect(): void { disconnected += 1; } };
+	h.view.lazyLoader = loader;
+	h.view.items = fixture.items;
+	h.view.mediaTrackingKeys = keys;
+	h.view.currentTree = fixture.tree;
+	const tile: TestTile = {
+		classes: new Set(), dataset: { mediaTrackingKey: 'first' },
+		addClass(name): void { this.classes.add(name); },
+		removeClass(name): void { this.classes.delete(name); },
+		removeAttribute(): void {}, setAttr(): void {}, focus(): void {}, scrollIntoView(): void {},
+	};
+	h.view.lastViewedTileEl = tile;
+	h.view.tilesByTrackingKey.set('first', tile);
+	const revision = h.view.renderRevision;
+	const writes = h.cssWrites.length;
+	for (const width of [300, 180, 500, 0, 1000]) {
+		h.setContentWidth(width);
+		observer.notify();
+		assert.equal(h.css['--section-gallery-tile-scale'], '1.5', 'Pane width cannot change the chosen scale');
+	}
+	assert.equal(refreshed, 5);
+	assert.equal(disconnected, 0, 'Resizing does not invalidate the loader cache');
+	assert.equal(h.view.lazyLoader, loader);
+	assert.equal(h.view.items, fixture.items);
+	assert.equal(h.view.mediaTrackingKeys, keys);
+	assert.equal(h.view.currentTree, fixture.tree);
+	assert.equal(h.view.lastViewedTileEl, tile);
+	assert.equal(h.view.tilesByTrackingKey.get('first'), tile);
+	assert.equal(h.view.renderRevision, revision);
+	assert.equal(h.cssWrites.length, writes, 'Resizing does not rewrite layout variables');
+	assert.equal(h.pendingFrames(), 0);
+	assert.equal(h.pendingTimers(), 0);
+	await h.view.onClose();
+	assert.equal(observer.isDisconnected(), true);
+	assert.equal(disconnected, 1);
+	observer.notify();
+	assert.equal(refreshed, 5, 'A closed view cannot refresh its former loader');
+});
+
+void test('fallback window resize preserves scale through hidden drawer changes and removes its listener on close', async () => {
+	const h = await createView({ getLayoutMode: () => 'square', getTileScale: () => 120 });
+	h.view.refresh = () => undefined;
+	await h.view.onOpen();
+	assert.equal(h.resizeListeners.size, 1);
+	let refreshed = 0;
+	let disconnected = 0;
+	const loader = { refreshVisibility(): void { refreshed += 1; }, disconnect(): void { disconnected += 1; } };
+	h.view.lazyLoader = loader;
+	const revision = h.view.renderRevision;
+	const writes = h.cssWrites.length;
+	for (const width of [0, 180, 400, 1000]) {
+		h.setContentWidth(width);
+		for (const resize of h.resizeListeners) resize();
+		assert.equal(h.css['--section-gallery-tile-scale'], '1.2');
+	}
+	assert.equal(refreshed, 4);
+	assert.equal(disconnected, 0);
+	assert.equal(h.view.lazyLoader, loader);
+	assert.equal(h.view.renderRevision, revision);
+	assert.equal(h.cssWrites.length, writes);
+	assert.equal(h.pendingFrames(), 0);
+	assert.equal(h.pendingTimers(), 0);
+	await h.view.onClose();
+	assert.equal(h.resizeListeners.size, 0);
+	assert.equal(disconnected, 1);
 });
 
 void test('keyboard focus state is registered on the gallery subtree, not the document', async () => {

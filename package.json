@@ -1,6 +1,6 @@
 {
 	"name": "gallery",
-	"version": "0.9.7",
+	"version": "0.9.8",
 	"description": "A fast section-aware media gallery for Obsidian.",
 	"main": "main.js",
 	"type": "module",

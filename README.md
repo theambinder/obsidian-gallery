@@ -11,7 +11,7 @@ Browse images and videos from your active note in a searchable sidebar and a ful
 - Browse local images and videos from the active note.
 - Search filenames and section headings, highlight matches, and filter images or videos. Search and filters also apply to the viewer.
 - Browse collapsible, nested sections with media counts and a pinned heading, or hide sections for a continuous media grid.
-- Adjust tile size from 30–180% and switch between cropped thumbnails and whole images.
+- Adjust tile size with 20 fixed scale levels, from small thumbnails to large tiles, and switch between cropped thumbnails and whole images.
 - Open media in a full-window viewer with swipe navigation, arrow keys, and a thumbnail strip.
 - Zoom images, move around an enlarged image, and hide or show the viewer controls.
 - View file information, including video duration and frame rate when available.
@@ -20,7 +20,7 @@ Browse images and videos from your active note in a searchable sidebar and a ful
 
 ## Performance
 
-Gallery loads media from the active note rather than scanning the whole vault. Thumbnails load as they become visible, and videos never autoplay in the grid. The viewer prepares neighboring images for smooth navigation. Gallery has no runtime dependencies.
+Gallery loads media from the active note rather than scanning the whole vault. Thumbnails load near the visible area; already generated previews are reused from a bounded in-memory cache while the note stays open. Videos never autoplay in the grid. The viewer prepares neighboring images for smooth navigation. Gallery has no runtime dependencies.
 
 ## Supported media
 
@@ -46,7 +46,7 @@ Remote URLs, media paths in properties, raw HTML media, and media inside embedde
 8. Swipe up, press `Up`, or select the information button to view the vault path, file size, dimensions, type, and modification time. Swipe down or press `Down` to hide the information panel. Another downward action closes the viewer.
 9. Drag or flick the thumbnail strip to move quickly through nearby media. The item nearest the center becomes active and snaps into place when scrolling stops.
 10. Where supported, select the share button to open the operating system's sharing options for the active file.
-11. Open **Settings → Gallery → Tile scale** to adjust thumbnail size. At the same panel width, a larger scale shows fewer tiles; no fixed column count is stored.
+11. Open **Settings → Gallery → Tile scale** to choose one of 20 fixed scale levels. Each number always represents the same scale; resizing the panel changes how many tiles fit, not the selected number. Rows fill the available width, so neighboring levels can look the same when they fit the same number of columns. Larger levels allow much larger tiles. Reset restores level 8, the original size.
 12. Disable **Settings → Gallery → Show sections** to display one continuous grid. Search still matches section headings, and the viewer keeps section labels. Re-enabling the setting restores your collapsed sections.
 
 ### Desktop
@@ -78,7 +78,7 @@ Select the locate button to return to the embed in the note. The share button ap
 
 Standard Obsidian CSS snippets can customize Gallery. See [CSS customization](docs/CUSTOMIZATION.md) for scoped selectors and an optional example; no extra plugin is required. Do not edit the installed `styles.css`, because updates replace it.
 
-For support, run **Gallery: Show mobile diagnostics**. The report is optional and local, and the command does not send anything. See [troubleshooting](docs/TROUBLESHOOTING.md).
+For support, see [troubleshooting](docs/TROUBLESHOOTING.md). An optional local report is available on desktop through **Gallery: Show mobile diagnostics**; the command is not shown on mobile and does not send anything.
 
 Playback and sharing depend on the installed Obsidian app, operating system, and device. A file that works on one device may not work on another. If a video preview or sharing option is unavailable, follow the troubleshooting guide above.
 
@@ -117,7 +117,9 @@ Use a dedicated test vault for UI testing. Do not enable development builds in a
 
 ### Technical details
 
-Gallery reads Obsidian's metadata cache for the active note. Tiles render in small batches. Image and video thumbnails are cached, with limits on simultaneous decoding and cancellation when media moves offscreen. The viewer keeps at most the two adjacent original images ready for page transitions.
+Gallery reads Obsidian's metadata cache for the active note. Tiles render in small batches. Visible images take priority over offscreen preloading. On mobile, one image thumbnail and one video-preview job can progress independently, so a slow video does not block images.
+
+The thumbnail cache has separate limits for encoded previews and offscreen image sources. Recently viewed stills stay attached within the offscreen budget; older sources can be detached while their encoded preview remains available for reuse without reading the original again. Cache hits bypass the decoding queue. These limits do not include currently visible media or temporary decoder memory. Changing notes, rebuilding the gallery, or closing the view releases the cache. There is no persistent or cross-note media cache, and original files are never modified. The viewer keeps at most the two adjacent original images ready for page transitions.
 
 When Web Share is available, Gallery reads a file for sharing only after the user selects the share button. Otherwise, Android sharing can use Obsidian's native adapter to pass the original vault-relative path without copying the file into JavaScript memory. The adapter is not a public typed API and may change; Gallery checks that it is available before showing the button.
 

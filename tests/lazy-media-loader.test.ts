@@ -10,7 +10,7 @@ import type { VideoTileMetadata } from '../src/video-metadata';
 
 // Obsidian supplies its runtime module in the app. Bundle only this loader with
 // a platform stub so lifecycle tests exercise its real public API under Node.
-async function buildLoader(ios: boolean) {
+async function buildLoader(ios: boolean, mobile = true) {
 const bundle = await build({
 	absWorkingDir: dirname(fileURLToPath(new URL('../package.json', import.meta.url))),
 	bundle: true,
@@ -26,7 +26,7 @@ const bundle = await build({
 				path: 'obsidian', namespace: 'test-platform',
 			}));
 			builder.onLoad({ filter: /.*/, namespace: 'test-platform' }, () => ({
-				contents: `export const Platform = { isMobile: true, isIosApp: ${ios} };`,
+				contents: `export const Platform = { isMobile: ${mobile}, isIosApp: ${ios} };`,
 			}));
 		},
 	}],
@@ -42,6 +42,7 @@ return await import(
 
 const { LazyMediaLoader } = await buildLoader(false);
 const { LazyMediaLoader: IosLazyMediaLoader } = await buildLoader(true);
+const { LazyMediaLoader: DesktopLazyMediaLoader } = await buildLoader(false, false);
 
 class FakeImage {
 	readonly attributes = new Map<string, string>();
@@ -55,8 +56,9 @@ class FakeImage {
 	left = 0;
 	isVideo = false;
 	loadCalls = 0;
+	srcAssignments = 0;
 	get src(): string { return this.attributes.get('src') ?? ''; }
-	set src(value: string) { this.attributes.set('src', value); }
+	set src(value: string) { this.srcAssignments += 1; this.attributes.set('src', value); }
 	hasAttribute(name: string): boolean { return this.attributes.has(name); }
 	removeAttribute(name: string): void { this.attributes.delete(name); }
 	instanceOf(): boolean { return this.isVideo; }
@@ -72,6 +74,7 @@ class FakeImage {
 		return {
 			addClass: (name: string) => this.containerClasses.add(name),
 			removeClass: (name: string) => this.containerClasses.delete(name),
+			hasClass: (name: string) => this.containerClasses.has(name),
 		};
 	}
 	getBoundingClientRect() {
@@ -143,19 +146,24 @@ function item(path: string, extension = 'png'): GalleryMedia {
 	} as GalleryMedia;
 }
 
-function harness(concurrency = 1, options: LazyMediaLoaderOptions = {}, ios = false) {
+function harness(concurrency?: number, options: LazyMediaLoaderOptions = {}, ios = false, mobile = true) {
 	const reads: string[] = [];
 	const pendingReads = new Map<string, ReturnType<typeof deferred<ArrayBuffer>>>();
 	const bitmapOptions: ImageBitmapOptions[] = [];
 	const bitmaps: { width: number; height: number; closed: boolean }[] = [];
 	const canvases: { width: number; height: number }[] = [];
+	const canvasBackingStores: { width: number; height: number }[] = [];
+	const pendingEncodes: BlobCallback[] = [];
+	const createdUrls: string[] = [];
 	const revokedUrls: string[] = [];
-	const observers: { emit(image: FakeImage, visible: boolean): void }[] = [];
+	const observers: { emit(image: FakeImage, visible: boolean): void; emitMany(images: FakeImage[], visible: boolean): void }[] = [];
 	const previewVideos: PreviewVideo[] = [];
 	const timers = new Map<number, () => void>();
 	let nextTimer = 0;
 	let bitmapFactory: ((options: ImageBitmapOptions) => Promise<ImageBitmap>) | null = null;
 	let objectUrls = 0;
+	let deferEncodes = false;
+	let thumbnailBytes = 9;
 	let manualCheck: FrameRequestCallback | null = null;
 	class FakeObserver {
 		constructor(private callback: IntersectionObserverCallback) {
@@ -165,9 +173,12 @@ function harness(concurrency = 1, options: LazyMediaLoaderOptions = {}, ios = fa
 		unobserve(): void {}
 		disconnect(): void {}
 		emit(image: FakeImage, visible: boolean): void {
-			this.callback([
-				{ target: image, isIntersecting: visible } as unknown as IntersectionObserverEntry,
-			], this as unknown as IntersectionObserver);
+			this.emitMany([image], visible);
+		}
+		emitMany(images: FakeImage[], visible: boolean): void {
+			this.callback(images.map(image =>
+				({ target: image, isIntersecting: visible }) as unknown as IntersectionObserverEntry,
+			), this as unknown as IntersectionObserver);
 		}
 	}
 	const win = {
@@ -183,7 +194,11 @@ function harness(concurrency = 1, options: LazyMediaLoaderOptions = {}, ios = fa
 		setTimeout: (callback: () => void) => { timers.set(++nextTimer, callback); return nextTimer; },
 		clearTimeout: (id: number) => { timers.delete(id); },
 		URL: {
-			createObjectURL: () => `blob:test-${++objectUrls}`,
+			createObjectURL: () => {
+				const url = `blob:test-${++objectUrls}`;
+				createdUrls.push(url);
+				return url;
+			},
 			revokeObjectURL: (url: string) => { revokedUrls.push(url); },
 		},
 		createImageBitmap: async (_source: Blob, options: ImageBitmapOptions) => {
@@ -209,9 +224,11 @@ function harness(concurrency = 1, options: LazyMediaLoaderOptions = {}, ios = fa
 				getContext: () => ({ drawImage: () => undefined }),
 				toBlob(callback: BlobCallback) {
 					canvases.push({ width: this.width, height: this.height });
-					callback(new Blob(['thumbnail']));
+					if (deferEncodes) pendingEncodes.push(callback);
+					else callback(new Blob([new Uint8Array(thumbnailBytes)]));
 				},
 			};
+			canvasBackingStores.push(canvas);
 			return canvas;
 		},
 	};
@@ -232,11 +249,15 @@ function harness(concurrency = 1, options: LazyMediaLoaderOptions = {}, ios = fa
 			},
 		},
 	};
-	const loader = new (ios ? IosLazyMediaLoader : LazyMediaLoader)(
+	const loader = new (ios ? IosLazyMediaLoader : mobile ? LazyMediaLoader : DesktopLazyMediaLoader)(
 		app as unknown as App, root as unknown as Element, { concurrency, ...options },
 	);
 	return {
-		loader, reads, pendingReads, bitmapOptions, bitmaps, canvases, revokedUrls, previewVideos, timers,
+		loader, reads, pendingReads, bitmapOptions, bitmaps, canvases, canvasBackingStores,
+		createdUrls, pendingEncodes, revokedUrls, previewVideos, timers,
+		deferEncoding() { deferEncodes = true; },
+		completeEncoding() { pendingEncodes.shift()?.(new Blob([new Uint8Array(thumbnailBytes)])); },
+		setThumbnailBytes(bytes: number) { thumbnailBytes = bytes; },
 		setBitmapFactory(factory: (options: ImageBitmapOptions) => Promise<ImageBitmap>) {
 			bitmapFactory = factory;
 		},
@@ -244,6 +265,7 @@ function harness(concurrency = 1, options: LazyMediaLoaderOptions = {}, ios = fa
 			loader.observe(image as unknown as HTMLImageElement, media, onRatio, onMetadata);
 		},
 		show(image: FakeImage, visible = true) { observers[0]?.emit(image, visible); },
+		showMany(images: FakeImage[], visible = true) { observers[0]?.emitMany(images, visible); },
 		checkVisibility() {
 			const callback = manualCheck;
 			manualCheck = null;
@@ -254,6 +276,16 @@ function harness(concurrency = 1, options: LazyMediaLoaderOptions = {}, ios = fa
 
 async function settle(): Promise<void> {
 	await new Promise<void>((resolve) => { setImmediate(resolve); });
+}
+
+async function completeImage(h: ReturnType<typeof harness>, path: string, image: FakeImage): Promise<void> {
+	const pending = h.pendingReads.get(path);
+	assert.ok(pending, `Expected a vault read for ${path}`);
+	pending.resolve(pngBytes());
+	await settle();
+	assert.ok(image.src.startsWith('blob:'));
+	// Obsidian's thumbnail onload callback supplies this state in production.
+	image.containerClasses.add('is-loaded');
 }
 
 void test('iOS canvas failure uses a bounded paused native preview without hiding the observed image geometry', async () => {
@@ -585,4 +617,477 @@ void test('simultaneous completed previews cannot evict each other before their 
 	assert.equal(h.revokedUrls.length, 1, 'Hidden frames become evictable immediately');
 	h.loader.disconnect();
 	assert.equal(h.revokedUrls.length, 2);
+});
+
+void test('more than 64 visited thumbnails stay encoded for the open note and return without another vault read', async () => {
+	const h = harness(1, { retainedBytes: 0 });
+	const visited: FakeImage[] = [];
+	for (let index = 0; index < 65; index += 1) {
+		const image = new FakeImage();
+		const path = `visited-${index}.png`;
+		visited.push(image);
+		h.observe(image, item(path));
+		h.show(image);
+		await completeImage(h, path, image);
+		h.show(image, false);
+		assert.equal(image.src, '', 'Decoded source retention is disabled for this test');
+	}
+	const first = visited[0]!;
+	h.show(first);
+	assert.equal(first.src, h.createdUrls[0], 'Encoded cache reattaches synchronously before any worker');
+	assert.equal(first.containerClasses.has('is-loaded'), true);
+	assert.equal(first.containerClasses.has('is-cached-preview'), true);
+	assert.equal(h.reads.length, 65);
+	assert.equal(h.canvases.length, 65);
+	assert.equal(h.revokedUrls.length, 0);
+	h.loader.disconnect();
+	assert.equal(h.revokedUrls.length, 65);
+	assert.equal(new Set(h.revokedUrls).size, 65);
+	assert.ok(visited.every(image => !image.containerClasses.has('is-cached-preview')));
+});
+
+void test('recent offscreen decoded sources keep their src and loaded state without reassignment or a fade', async () => {
+	const h = harness(1);
+	const image = new FakeImage();
+	h.observe(image, item('recent.png'));
+	h.show(image);
+	await completeImage(h, 'recent.png', image);
+	const url = image.src;
+	const assignments = image.srcAssignments;
+	h.show(image, false);
+	assert.equal(image.src, url);
+	assert.equal(image.containerClasses.has('is-loaded'), true);
+	h.show(image);
+	assert.equal(image.src, url);
+	assert.equal(image.srcAssignments, assignments);
+	assert.equal(image.containerClasses.has('is-loaded'), true);
+	assert.equal(h.reads.length, 1);
+	assert.equal(image.containerClasses.has('is-cached-preview'), true);
+	h.loader.disconnect();
+	assert.equal(image.src, '');
+	assert.equal(image.containerClasses.has('is-cached-preview'), false);
+	assert.deepEqual(h.revokedUrls, [url]);
+});
+
+void test('decoded offscreen budget detaches the oldest source but leaves its encoded thumbnail reusable', async () => {
+	const h = harness(1, { retainedBytes: 384 * 384 * 4 });
+	const first = new FakeImage();
+	const second = new FakeImage();
+	h.observe(first, item('first.png'));
+	h.observe(second, item('second.png'));
+	h.show(first);
+	await completeImage(h, 'first.png', first);
+	const firstUrl = first.src;
+	h.show(first, false);
+	assert.equal(first.src, firstUrl);
+	h.show(second);
+	await completeImage(h, 'second.png', second);
+	const secondUrl = second.src;
+	h.show(second, false);
+	assert.equal(first.src, '');
+	assert.equal(first.containerClasses.has('is-loaded'), false);
+	assert.equal(second.src, secondUrl);
+	assert.deepEqual(h.revokedUrls, []);
+	h.show(first);
+	assert.equal(first.src, firstUrl);
+	assert.equal(first.containerClasses.has('is-loaded'), true);
+	assert.equal(h.reads.length, 2);
+	h.show(first, false);
+	assert.equal(second.src, '', 'The next retained source is evicted oldest-first');
+	assert.equal(first.src, firstUrl);
+	h.loader.disconnect();
+	assert.equal(new Set(h.revokedUrls).size, 2);
+});
+
+void test('compressed count and byte budgets evict LRU thumbnails and revoke each URL once', async () => {
+	for (const options of [{ cacheEntries: 2 }, { cacheBytes: 18 }]) {
+		const h = harness(1, options);
+		const images: FakeImage[] = [];
+		for (const path of ['a.png', 'b.png', 'c.png']) {
+			const image = new FakeImage();
+			images.push(image);
+			h.observe(image, item(path));
+			h.show(image);
+			await completeImage(h, path, image);
+			h.show(image, false);
+		}
+		assert.equal(images[0]!.src, '', 'Encoded eviction detaches its retained source first');
+		assert.deepEqual(h.revokedUrls, [h.createdUrls[0]]);
+		h.show(images[1]!);
+		assert.equal(h.reads.length, 3, 'A surviving encoded cache hit performs no vault read');
+		h.show(images[1]!, false);
+		h.show(images[0]!);
+		await completeImage(h, 'a.png', images[0]!);
+		assert.equal(h.reads.filter(path => path === 'a.png').length, 2);
+		assert.equal(images[2]!.src, '', 'Touching b made c the oldest evictable entry');
+		h.loader.disconnect();
+		assert.equal(h.revokedUrls.length, h.createdUrls.length);
+		assert.equal(new Set(h.revokedUrls).size, h.createdUrls.length);
+	}
+});
+
+void test('a cached thumbnail bypasses a stalled video even with an explicit single worker', async () => {
+	const h = harness(1, { retainedBytes: 0 });
+	const image = new FakeImage();
+	const video = new FakeImage();
+	h.observe(image, item('cached.png'));
+	h.observe(video, item('stalled.mp4', 'mp4'));
+	h.show(image);
+	await completeImage(h, 'cached.png', image);
+	const url = image.src;
+	h.show(image, false);
+	h.show(video);
+	assert.equal(h.previewVideos.length, 1);
+	h.show(image);
+	assert.equal(image.src, url);
+	assert.equal(image.containerClasses.has('is-loaded'), true);
+	assert.deepEqual(h.reads, ['cached.png']);
+	assert.equal(h.previewVideos[0]!.src, 'stalled.mp4');
+	h.loader.disconnect();
+	await settle();
+	assert.equal(h.previewVideos[0]!.src, '');
+});
+
+void test('batched visibility prioritizes actual viewport images, viewport videos, then overscan', async () => {
+	for (const manual of [false, true]) {
+		const h = harness(1);
+		const overscanImage = new FakeImage();
+		overscanImage.top = 101;
+		const overscanVideo = new FakeImage();
+		overscanVideo.top = 115;
+		const viewportVideo = new FakeImage();
+		const viewportImage = new FakeImage();
+		viewportImage.top = 95;
+		viewportImage.left = 95;
+		const images = [overscanImage, overscanVideo, viewportVideo, viewportImage];
+		for (const [image, media] of [
+			[overscanImage, item('overscan.png')], [overscanVideo, item('overscan.mp4', 'mp4')],
+			[viewportVideo, item('visible.mp4', 'mp4')], [viewportImage, item('visible.png')],
+		] as const) h.observe(image, media);
+		if (manual) h.checkVisibility();
+		else h.showMany(images);
+		assert.deepEqual(h.reads, ['visible.png'], 'Viewport tier beats the closer overscan image');
+		assert.equal(h.previewVideos.length, 0);
+		await completeImage(h, 'visible.png', viewportImage);
+		assert.equal(h.previewVideos[0]!.src, 'visible.mp4');
+		h.previewVideos[0]!.readyState = 2;
+		h.previewVideos[0]!.emit('loadeddata');
+		await settle();
+		assert.deepEqual(h.reads, ['visible.png', 'overscan.png']);
+		await completeImage(h, 'overscan.png', overscanImage);
+		assert.equal(h.previewVideos[1]!.src, 'overscan.mp4');
+		h.loader.disconnect();
+		await settle();
+	}
+});
+
+void test('mobile defaults let one image progress beside a stalled video without adding image or video decoders', async () => {
+	const h = harness();
+	const firstVideo = new FakeImage();
+	const secondVideo = new FakeImage();
+	const firstImage = new FakeImage();
+	const secondImage = new FakeImage();
+	h.observe(firstVideo, item('first.mp4', 'mp4'));
+	h.observe(secondVideo, item('second.mp4', 'mp4'));
+	h.observe(firstImage, item('first.png'));
+	h.observe(secondImage, item('second.png'));
+	h.show(firstVideo);
+	h.show(secondVideo);
+	h.show(firstImage);
+	h.show(secondImage);
+	assert.equal(h.previewVideos.length, 1, 'A blocked video at the queue head cannot start a second decoder');
+	assert.deepEqual(h.reads, ['first.png'], 'The eligible image behind that video gets its independent slot');
+	await completeImage(h, 'first.png', firstImage);
+	assert.deepEqual(h.reads, ['first.png', 'second.png']);
+	assert.equal(h.previewVideos.length, 1);
+	h.show(firstVideo, false);
+	await settle();
+	assert.equal(h.previewVideos.length, 2, 'Cancellation releases the video lane');
+	assert.equal(h.previewVideos[0]!.src, '');
+	h.loader.disconnect();
+	h.pendingReads.get('second.png')?.resolve(pngBytes());
+	await settle();
+});
+
+void test('explicit mobile worker limits and desktop defaults retain their existing global concurrency', async () => {
+	const mobile = harness(1);
+	const video = new FakeImage();
+	const waitingImage = new FakeImage();
+	mobile.observe(video, item('serial.mp4', 'mp4'));
+	mobile.observe(waitingImage, item('serial.png'));
+	mobile.show(video);
+	mobile.show(waitingImage);
+	assert.deepEqual(mobile.reads, []);
+	mobile.loader.disconnect();
+	await settle();
+	const desktop = harness(undefined, {}, false, false);
+	for (const path of ['a.png', 'b.png', 'c.png', 'd.png']) {
+		const image = new FakeImage();
+		desktop.observe(image, item(path));
+		desktop.show(image);
+	}
+	assert.deepEqual(desktop.reads, ['a.png', 'b.png', 'c.png']);
+	desktop.loader.disconnect();
+	for (const pending of desktop.pendingReads.values()) pending.resolve(pngBytes());
+	await settle();
+	assert.equal(desktop.bitmapOptions.length, 0);
+});
+
+void test('native iOS fallback occupies only the mobile video lane and keeps existing offscreen teardown', async () => {
+	const h = harness(undefined, {}, true);
+	const video = new FakeImage();
+	const image = new FakeImage();
+	h.observe(video, item('native.mp4', 'mp4'));
+	h.observe(image, item('image.png'));
+	h.show(video);
+	h.previewVideos[0]!.emit('error');
+	await settle();
+	const native = video.nativeVideos[0]!;
+	h.show(image);
+	assert.deepEqual(h.reads, ['image.png']);
+	assert.equal(native.playCalls, 0);
+	assert.equal(h.previewVideos.length, 2);
+	h.show(video, false);
+	await settle();
+	assert.equal(native.src, '');
+	assert.equal(native.removed, true);
+	assert.equal(h.timers.size, 0);
+	h.loader.disconnect();
+	h.pendingReads.get('image.png')?.resolve(pngBytes());
+	await settle();
+});
+
+void test('visible duplicate attachments pin one encoded URL until its retained copies can be safely evicted', async () => {
+	const h = harness(2, { cacheEntries: 1 });
+	const first = new FakeImage();
+	const duplicate = new FakeImage();
+	const other = new FakeImage();
+	h.observe(first, item('shared.png'));
+	h.observe(duplicate, item('shared.png'));
+	h.show(first);
+	h.show(duplicate);
+	await completeImage(h, 'shared.png', first);
+	duplicate.containerClasses.add('is-loaded');
+	const sharedUrl = first.src;
+	assert.equal(duplicate.src, sharedUrl);
+	assert.deepEqual(h.reads, ['shared.png']);
+	h.show(first, false);
+	h.observe(other, item('other.png'));
+	h.show(other);
+	await completeImage(h, 'other.png', other);
+	assert.equal(first.src, sharedUrl, 'A visible duplicate still pins the shared URL');
+	assert.deepEqual(h.revokedUrls, []);
+	h.show(duplicate, false);
+	assert.equal(first.src, '');
+	assert.equal(duplicate.src, '');
+	assert.ok(other.src.startsWith('blob:'));
+	assert.deepEqual(h.revokedUrls, [sharedUrl]);
+	h.loader.disconnect();
+	assert.equal(h.revokedUrls.length, 2);
+	assert.equal(new Set(h.revokedUrls).size, 2);
+});
+
+void test('reobserving a changed file identity invalidates its retained source and old encoded URL', async () => {
+	const h = harness(1);
+	const image = new FakeImage();
+	const media = item('changing.png');
+	h.observe(image, media);
+	h.show(image);
+	await completeImage(h, 'changing.png', image);
+	const oldUrl = image.src;
+	h.show(image, false);
+	media.file.stat.mtime += 1;
+	h.observe(image, media);
+	assert.equal(image.src, '');
+	assert.deepEqual(h.revokedUrls, [oldUrl]);
+	h.show(image);
+	await completeImage(h, 'changing.png', image);
+	assert.notEqual(image.src, oldUrl);
+	assert.equal(h.reads.length, 2);
+	h.loader.disconnect();
+	assert.equal(h.revokedUrls.length, 2);
+	assert.equal(new Set(h.revokedUrls).size, 2);
+});
+
+void test('a mutable file identity changing during bitmap decode closes stale pixels and retries the visible tile', async () => {
+	const h = harness(1);
+	const firstBitmap = deferred<ImageBitmap>();
+	let closed = false;
+	let decodeCalls = 0;
+	h.setBitmapFactory(() => ++decodeCalls === 1 ? firstBitmap.promise : Promise.resolve({
+		width: 384, height: 216, close() {},
+	} as ImageBitmap));
+	const image = new FakeImage();
+	const media = item('mutating.png');
+	h.observe(image, media);
+	h.show(image);
+	h.pendingReads.get('mutating.png')!.resolve(pngBytes());
+	await settle();
+	media.file.stat.mtime += 1;
+	firstBitmap.resolve({ width: 384, height: 216, close() { closed = true; } });
+	await settle();
+	assert.equal(closed, true);
+	assert.equal(h.canvases.length, 0, 'Stale bitmap must not allocate a canvas or publish a URL');
+	assert.deepEqual(h.createdUrls, []);
+	assert.deepEqual(h.reads, ['mutating.png', 'mutating.png']);
+	await completeImage(h, 'mutating.png', image);
+	assert.equal(h.createdUrls.length, 1);
+	h.loader.disconnect();
+	assert.equal(h.revokedUrls.length, 1);
+});
+
+void test('late encodes after note close free canvas backing and bitmap resources without creating a URL', async () => {
+	const h = harness(1);
+	h.deferEncoding();
+	const image = new FakeImage();
+	h.observe(image, item('late.png'));
+	h.show(image);
+	h.pendingReads.get('late.png')!.resolve(pngBytes());
+	await settle();
+	assert.equal(h.pendingEncodes.length, 1);
+	h.loader.disconnect();
+	h.completeEncoding();
+	await settle();
+	assert.equal(image.src, '');
+	assert.deepEqual(h.createdUrls, []);
+	assert.deepEqual(h.revokedUrls, []);
+	assert.ok(h.bitmaps.every(bitmap => bitmap.closed));
+	assert.ok(h.canvasBackingStores.every(canvas => canvas.width === 1 && canvas.height === 1));
+});
+
+void test('unobserving a retained node detaches it while the open-note encoded cache can serve a replacement', async () => {
+	const h = harness(1);
+	const first = new FakeImage();
+	h.observe(first, item('replacement.png'));
+	h.show(first);
+	await completeImage(h, 'replacement.png', first);
+	const url = first.src;
+	h.show(first, false);
+	h.loader.unobserve(first as unknown as HTMLImageElement);
+	assert.equal(first.src, '');
+	assert.equal(first.containerClasses.has('is-loaded'), false);
+	const replacement = new FakeImage();
+	h.observe(replacement, item('replacement.png'));
+	h.show(replacement);
+	assert.equal(replacement.src, url);
+	assert.equal(replacement.containerClasses.has('is-loaded'), true);
+	assert.equal(replacement.containerClasses.has('is-cached-preview'), true);
+	assert.equal(h.reads.length, 1);
+	h.loader.disconnect();
+	assert.deepEqual(h.revokedUrls, [url]);
+	assert.equal(replacement.containerClasses.has('is-cached-preview'), false);
+});
+
+void test('cached-preview state clears on encoded eviction rather than leaking into a fresh image load', async () => {
+	const h = harness(1, { cacheEntries: 1 });
+	const first = new FakeImage();
+	const second = new FakeImage();
+	h.observe(first, item('old.png'));
+	h.observe(second, item('new.png'));
+	h.show(first);
+	await completeImage(h, 'old.png', first);
+	h.show(first, false);
+	h.show(first);
+	assert.equal(first.containerClasses.has('is-cached-preview'), true);
+	h.show(first, false);
+	h.show(second);
+	await completeImage(h, 'new.png', second);
+	assert.equal(first.src, '');
+	assert.equal(first.containerClasses.has('is-cached-preview'), false);
+	assert.equal(second.containerClasses.has('is-cached-preview'), false);
+	h.loader.disconnect();
+});
+
+void test('explicit single-worker filmstrip keeps cache hits immediate and finishes visible images before a waiting video', async () => {
+	const h = harness(1, {
+		cacheEntries: 40,
+		thumbnailWidth: 160,
+		retainedBytes: 0,
+		imageRootMargin: '0px 160px',
+		videoRootMargin: '0px 48px',
+		manualMarginPx: 160,
+	});
+	const cached = new FakeImage();
+	h.observe(cached, item('filmstrip-cached.png'));
+	h.show(cached);
+	await completeImage(h, 'filmstrip-cached.png', cached);
+	const cachedUrl = cached.src;
+	h.show(cached, false);
+	const video = new FakeImage();
+	const first = new FakeImage();
+	const second = new FakeImage();
+	h.observe(video, item('filmstrip.mp4', 'mp4'));
+	h.observe(first, item('filmstrip-first.png'));
+	h.observe(second, item('filmstrip-second.png'));
+	h.showMany([video, first, second]);
+	assert.deepEqual(h.reads, ['filmstrip-cached.png', 'filmstrip-first.png']);
+	assert.equal(h.previewVideos.length, 0);
+	h.show(cached);
+	assert.equal(cached.src, cachedUrl);
+	assert.equal(cached.containerClasses.has('is-cached-preview'), true);
+	await completeImage(h, 'filmstrip-first.png', first);
+	assert.equal(h.reads.at(-1), 'filmstrip-second.png');
+	assert.equal(h.previewVideos.length, 0);
+	await completeImage(h, 'filmstrip-second.png', second);
+	assert.equal(h.previewVideos.length, 1, 'A finite visible-image batch releases the serial slot to video');
+	assert.equal(h.previewVideos[0]!.src, 'filmstrip.mp4');
+	assert.ok(h.canvases.every(canvas => canvas.width === 160 && canvas.height === 90));
+	h.loader.disconnect();
+	await settle();
+});
+
+void test('file identity changes during asynchronous encode publish only the fresh retry result', async () => {
+	const h = harness(1);
+	h.deferEncoding();
+	const image = new FakeImage();
+	const media = item('encoding-change.png');
+	h.observe(image, media);
+	h.show(image);
+	h.pendingReads.get('encoding-change.png')!.resolve(pngBytes());
+	await settle();
+	assert.equal(h.pendingEncodes.length, 1);
+	media.file.stat.size += 1;
+	h.completeEncoding();
+	await settle();
+	assert.deepEqual(h.createdUrls, []);
+	assert.equal(image.src, '');
+	assert.equal(h.reads.length, 2);
+	h.pendingReads.get('encoding-change.png')!.resolve(pngBytes());
+	await settle();
+	assert.equal(h.pendingEncodes.length, 1);
+	h.completeEncoding();
+	await settle();
+	assert.ok(image.src.startsWith('blob:'));
+	assert.equal(h.createdUrls.length, 1);
+	assert.ok(h.bitmaps.every(bitmap => bitmap.closed));
+	assert.ok(h.canvasBackingStores.every(canvas => canvas.width === 1 && canvas.height === 1));
+	h.loader.disconnect();
+	assert.deepEqual(h.revokedUrls, h.createdUrls);
+});
+
+void test('native fallback timeout releases the default mobile video lane without interrupting image loading', async () => {
+	const h = harness(undefined, {}, true);
+	const first = new FakeImage();
+	const second = new FakeImage();
+	const image = new FakeImage();
+	h.observe(first, item('timeout-first.mp4', 'mp4'));
+	h.observe(second, item('timeout-second.mp4', 'mp4'));
+	h.observe(image, item('timeout-image.png'));
+	h.show(first);
+	h.show(second);
+	h.previewVideos[0]!.emit('error');
+	await settle();
+	h.show(image);
+	assert.deepEqual(h.reads, ['timeout-image.png']);
+	assert.equal(h.previewVideos.length, 2);
+	for (const callback of [...h.timers.values()]) callback();
+	await settle();
+	assert.equal(first.nativeVideos[0]!.removed, true);
+	assert.equal(h.previewVideos.length, 3);
+	assert.equal(h.previewVideos[2]!.src, 'timeout-second.mp4');
+	await completeImage(h, 'timeout-image.png', image);
+	assert.equal(h.previewVideos.length, 3, 'Image completion never opens another video decoder');
+	h.loader.disconnect();
+	await settle();
+	assert.equal(h.timers.size, 0);
 });

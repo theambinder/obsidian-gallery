@@ -61,7 +61,7 @@ import type {
 export interface GalleryViewHost {
 	getActiveNote(): TFile | null;
 	getLayoutMode(): GalleryLayoutMode;
-	getTileScale(): number;
+	getEffectiveTileScale(): number;
 	getShowSections(): boolean;
 	openLightbox(
 		media: readonly GalleryMedia[],
@@ -163,7 +163,7 @@ export class SectionGalleryView extends ItemView {
 		this.contentEl.setAttr('aria-labelledby', this.regionLabelEl.id);
 		this.layoutMode = this.host.getLayoutMode();
 		this.showSections = this.host.getShowSections();
-		this.setTileScale(this.host.getTileScale());
+		this.setTileScale(this.host.getEffectiveTileScale());
 		this.addAction('refresh-cw', 'Refresh gallery', () => this.refresh(true));
 		this.registerDomEvent(this.contentEl, 'click', (event) => {
 			this.handleGalleryClick(event);

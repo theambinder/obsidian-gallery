@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.9.9 - 2026-10-08
+
+### Added
+
+- Add an optional separate mobile tile scale, while keeping one shared scale by default.
+
+### Fixed
+
+- Reuse mobile image thumbnails more reliably when scrolling back within the same open note, with bounded memory and lazy loading.
+
 ## 0.9.8 - 2026-10-07
 
 ### Changed

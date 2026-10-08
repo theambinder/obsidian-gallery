@@ -31,6 +31,7 @@ interface ThumbnailEntry {
 	aspectRatio: number;
 	attachments: Set<HTMLImageElement>;
 	bytes: number;
+	decodedBytes: number;
 	filePath: string;
 	references: number;
 	url: string;
@@ -51,14 +52,15 @@ export interface LazyMediaLoaderOptions {
 	concurrency?: number;
 	imageRootMargin?: string;
 	manualMarginPx?: number;
-	/** Extra offscreen sources, estimated at thumbnailWidth² × 4 bytes each. */
+	/** Extra offscreen sources, estimated from their actual thumbnail pixels. */
 	retainedBytes?: number;
 	thumbnailWidth?: number;
 	videoRootMargin?: string;
 }
 
 const DEFAULT_THUMBNAIL_WIDTH = 384;
-const MOBILE_CACHE_BYTES = 8 * 1024 * 1024;
+const MOBILE_CACHE_BYTES = 16 * 1024 * 1024;
+const MOBILE_RETAINED_BYTES = 24 * 1024 * 1024;
 const DESKTOP_CACHE_BYTES = 24 * 1024 * 1024;
 const MAX_MOBILE_FALLBACK_PIXELS = 24_000_000;
 
@@ -84,12 +86,11 @@ export class LazyMediaLoader {
 	private readonly mediaStates = new Map<LazyMediaElement, LazyMediaState>();
 	private readonly queue: HTMLImageElement[] = [];
 	private queueBatchDepth = 0;
-	private readonly retainedThumbnails = new Map<HTMLImageElement, LazyMediaState>();
+	private readonly retainedThumbnails = new Map<HTMLImageElement, { state: LazyMediaState; bytes: number }>();
 	private retainedSizeBytes = 0;
 	private readonly retainedBytes: number;
 	private readonly root: Element;
 	private readonly thumbnailWidth: number;
-	private readonly thumbnailMemoryBytes: number;
 	private readonly videoObserver: IntersectionObserver | null;
 	private readonly videoRootMargin: string;
 
@@ -101,7 +102,7 @@ export class LazyMediaLoader {
 		this.root = root;
 		this.cacheEntries = options.cacheEntries ?? 512;
 		this.cacheBytes = options.cacheBytes ?? (Platform.isMobile ? MOBILE_CACHE_BYTES : DESKTOP_CACHE_BYTES);
-		this.retainedBytes = options.retainedBytes ?? (Platform.isMobile ? MOBILE_CACHE_BYTES : DESKTOP_CACHE_BYTES);
+		this.retainedBytes = options.retainedBytes ?? (Platform.isMobile ? MOBILE_RETAINED_BYTES : DESKTOP_CACHE_BYTES);
 		const splitMobileJobs = Platform.isMobile && options.concurrency === undefined;
 		this.concurrency = options.concurrency ?? (Platform.isMobile ? 2 : 3);
 		// One image decoder and one ranged video frame may progress independently
@@ -111,9 +112,6 @@ export class LazyMediaLoader {
 		this.manualMarginPx = options.manualMarginPx ?? 144;
 		this.thumbnailWidth =
 			options.thumbnailWidth ?? DEFAULT_THUMBNAIL_WIDTH;
-		// Charge each retained source conservatively, even when duplicates could
-		// share a browser decode or an aspect-fit thumbnail uses fewer pixels.
-		this.thumbnailMemoryBytes = this.thumbnailWidth * this.thumbnailWidth * 4;
 		this.imageRootMargin = options.imageRootMargin ?? '144px 0px';
 		this.videoRootMargin = options.videoRootMargin ?? '32px 0px';
 		this.imageObserver = this.createObserver(this.imageRootMargin);
@@ -687,20 +685,24 @@ export class LazyMediaLoader {
 			state.attachedThumbnailPinned = false;
 		}
 		if (!this.retainedThumbnails.has(media)) {
-			this.retainedThumbnails.set(media, state);
-			this.retainedSizeBytes += this.thumbnailMemoryBytes;
+			// Charge each source separately, even when duplicate tiles could share
+			// a browser decode, but use the real aspect-fit dimensions. A wide still
+			// does not allocate a square pixel buffer merely because the max is 384.
+			this.retainedThumbnails.set(media, { state, bytes: entry.decodedBytes });
+			this.retainedSizeBytes += entry.decodedBytes;
 		}
 		while (this.retainedSizeBytes > this.retainedBytes) {
 			const oldest = this.retainedThumbnails.entries().next().value;
 			if (!oldest) break;
-			this.detachThumbnail(...oldest);
+			this.detachThumbnail(oldest[0], oldest[1].state);
 		}
 		this.evictCache();
 	}
 
 	private removeRetainedThumbnail(media: HTMLImageElement): void {
-		if (this.retainedThumbnails.delete(media)) {
-			this.retainedSizeBytes -= this.thumbnailMemoryBytes;
+		const retained = this.retainedThumbnails.get(media);
+		if (retained && this.retainedThumbnails.delete(media)) {
+			this.retainedSizeBytes -= retained.bytes;
 		}
 	}
 
@@ -772,6 +774,7 @@ export class LazyMediaLoader {
 			aspectRatio: preview.metadata.width / preview.metadata.height,
 			attachments: new Set(),
 			bytes: preview.blob.size,
+			decodedBytes: this.getDecodedThumbnailBytes(this.fitThumbnailSize(preview.metadata)),
 			filePath: item.file.path,
 			references: 0,
 			url: this.getUrlApi().createObjectURL(preview.blob),
@@ -804,6 +807,7 @@ export class LazyMediaLoader {
 			aspectRatio: thumbnail.aspectRatio,
 			attachments: new Set(),
 			bytes: thumbnail.blob.size,
+			decodedBytes: this.getDecodedThumbnailBytes(thumbnail),
 			filePath: file.path,
 			references: 0,
 			url,
@@ -817,7 +821,7 @@ export class LazyMediaLoader {
 		source: Blob,
 		dimensions: ImageDimensions | null,
 		assertCurrent: () => void,
-	): Promise<{ aspectRatio: number; blob: Blob }> {
+	): Promise<{ aspectRatio: number; blob: Blob; width: number; height: number }> {
 		const rootWindow = this.root.win as Window & {
 			createImageBitmap?: typeof createImageBitmap;
 		};
@@ -841,6 +845,7 @@ export class LazyMediaLoader {
 					);
 					const blob = await this.canvasToBlob(canvas);
 					return {
+						...bitmapTarget,
 						aspectRatio:
 							dimensions?.width && dimensions.height
 								? dimensions.width / dimensions.height
@@ -862,7 +867,7 @@ export class LazyMediaLoader {
 		source: Blob,
 		dimensions: ImageDimensions | null,
 		assertCurrent: () => void,
-	): Promise<{ aspectRatio: number; blob: Blob }> {
+	): Promise<{ aspectRatio: number; blob: Blob; width: number; height: number }> {
 		assertCurrent();
 		if (
 			Platform.isMobile &&
@@ -892,6 +897,7 @@ export class LazyMediaLoader {
 			);
 			const blob = await this.canvasToBlob(canvas);
 			return {
+				...target,
 				aspectRatio: image.naturalWidth / image.naturalHeight,
 				blob,
 			};
@@ -937,7 +943,47 @@ export class LazyMediaLoader {
 		return canvas;
 	}
 
-	private canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+	private getDecodedThumbnailBytes(dimensions: ImageDimensions): number {
+		return dimensions.width * dimensions.height * 4;
+	}
+
+	private async canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+		try {
+			const blob = await this.encodeCanvas(canvas, 'image/webp');
+			// WKWebView can decode WebP while its canvas encoder silently returns
+			// PNG. Those large lossless stills used to fill the note cache after a
+			// short mobile scroll and trigger fresh vault reads on the way back.
+			// JPEG is a compact fallback only for opaque pixels; keep PNG otherwise
+			// so transparent screenshots and artwork retain their appearance.
+			if (Platform.isMobile && blob.type === 'image/png' && this.isCanvasOpaque(canvas)) {
+				try {
+					const jpeg = await this.encodeCanvas(canvas, 'image/jpeg', 0.84);
+					if (jpeg.type === 'image/jpeg' && jpeg.size < blob.size) return jpeg;
+				} catch { /* A failed fallback must not discard a valid PNG. */ }
+			}
+			return blob;
+		} finally {
+			// Release the pixel backing store on failed encodes as well.
+			canvas.width = 1;
+			canvas.height = 1;
+		}
+	}
+
+	private isCanvasOpaque(canvas: HTMLCanvasElement): boolean {
+		try {
+			const pixels = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data;
+			if (!pixels || pixels.length !== canvas.width * canvas.height * 4) return false;
+			for (let offset = 3; offset < pixels.length; offset += 4) {
+				if (pixels[offset] !== 255) return false;
+			}
+			return true;
+		} catch {
+			// Never flatten alpha if a WebView cannot inspect its canvas safely.
+			return false;
+		}
+	}
+
+	private encodeCanvas(canvas: HTMLCanvasElement, type: string, quality = 0.76): Promise<Blob> {
 		return new Promise<Blob>((resolve, reject) => {
 			canvas.toBlob(
 				(blob) => {
@@ -947,13 +993,9 @@ export class LazyMediaLoader {
 						reject(new Error('Could not encode thumbnail.'));
 					}
 				},
-				'image/webp',
-				0.76,
+				type,
+				quality,
 			);
-		}).finally(() => {
-			// Release the pixel backing store on failed encodes as well.
-			canvas.width = 1;
-			canvas.height = 1;
 		});
 	}
 

@@ -7,6 +7,10 @@ import { TILE_SCALE_PRESETS, tileLevelToScale, tileScaleToLevel } from '../src/g
 interface SettingsHost {
 	getTileScale(): number;
 	setTileScale(value: number): Promise<void>;
+	getSeparateMobileTileScale(): boolean;
+	setSeparateMobileTileScale(value: boolean): Promise<void>;
+	getMobileTileScale(): number;
+	setMobileTileScale(value: number): Promise<void>;
 	getShowSections(): boolean;
 	setShowSections(value: boolean): Promise<void>;
 }
@@ -35,6 +39,7 @@ interface TestDefinition {
 	name: string;
 	desc?: string;
 	control?: { type: string; key: string; defaultValue: boolean };
+	visible?: () => boolean;
 	render?: (setting: TestSetting) => void;
 }
 
@@ -50,13 +55,17 @@ const settingsBundle = build({
 		format: 'cjs', platform: 'node', write: false,
 	}).then(result => result.outputFiles[0]!.text);
 
-async function harness(options: { fail?: boolean; scale?: number; showSections?: boolean } = {}) {
+async function harness(options: { fail?: boolean; scale?: number; showSections?: boolean; separateMobile?: boolean; mobileScale?: number } = {}) {
 	const module = { exports: {} };
 	const notices: string[] = [];
 	const scales: number[] = [];
+	const mobileScales: number[] = [];
+	const separateMobileChanges: boolean[] = [];
 	const sectionVisibility: boolean[] = [];
 	let scale = options.scale ?? 100;
 	let showSections = options.showSections ?? true;
+	let separateMobile = options.separateMobile ?? false;
+	let mobileScale = options.mobileScale ?? null;
 	const host: SettingsHost = {
 		getTileScale: () => scale,
 		setTileScale: (value) => {
@@ -65,6 +74,19 @@ async function harness(options: { fail?: boolean; scale?: number; showSections?:
 			return options.fail ? Promise.reject(new Error('Storage unavailable')) : Promise.resolve();
 		},
 		getShowSections: () => showSections,
+		getSeparateMobileTileScale: () => separateMobile,
+		setSeparateMobileTileScale: (value) => {
+			separateMobileChanges.push(value);
+			if (value && mobileScale === null) mobileScale = scale;
+			separateMobile = value;
+			return options.fail ? Promise.reject(new Error('Storage unavailable')) : Promise.resolve();
+		},
+		getMobileTileScale: () => mobileScale ?? scale,
+		setMobileTileScale: (value) => {
+			mobileScales.push(value);
+			mobileScale = value;
+			return options.fail ? Promise.reject(new Error('Storage unavailable')) : Promise.resolve();
+		},
 		setShowSections: (value) => {
 			sectionVisibility.push(value);
 			showSections = value;
@@ -82,8 +104,9 @@ async function harness(options: { fail?: boolean; scale?: number; showSections?:
 		GallerySettingsTab: new (app: object, plugin: object, host: SettingsHost) => TestTab;
 	}).GallerySettingsTab;
 	return {
-		tab: new Constructor({}, {}, host), notices, scales, sectionVisibility,
+		tab: new Constructor({}, {}, host), notices, scales, mobileScales, separateMobileChanges, sectionVisibility,
 		getScale: () => scale,
+		getMobileScale: () => mobileScale,
 	};
 }
 
@@ -122,12 +145,76 @@ function renderSlider(definition: TestDefinition) {
 void test('public settings expose tile scale and native section visibility, without a diagnostics row', async () => {
 	const { tab } = await harness();
 	const definitions = tab.getSettingDefinitions();
-	assert.equal(definitions.length, 2);
+	assert.equal(definitions.length, 4);
 	assert.equal(definitions[0]?.name, 'Tile scale');
-	assert.equal(definitions[1]?.name, 'Show sections');
+	assert.equal(definitions[1]?.name, 'Use separate mobile tile scale');
 	assert.deepEqual(JSON.parse(JSON.stringify(definitions[1]?.control)), {
+		type: 'toggle', key: 'separateMobileTileScale', defaultValue: false,
+	});
+	assert.equal(definitions[2]?.name, 'Mobile tile scale');
+	assert.equal(definitions[2]?.visible?.(), false);
+	assert.equal(definitions[3]?.name, 'Show sections');
+	assert.deepEqual(JSON.parse(JSON.stringify(definitions[3]?.control)), {
 		type: 'toggle', key: 'showSections', defaultValue: true,
 	});
+});
+
+void test('native separate-mobile toggle reveals an inherited second slider and keeps its value across disable and reenable', async () => {
+	const h = await harness({ scale: 380 });
+	assert.equal(h.tab.getControlValue('separateMobileTileScale'), false);
+	await h.tab.setControlValue('separateMobileTileScale', 'true');
+	assert.deepEqual(h.separateMobileChanges, []);
+	await h.tab.setControlValue('separateMobileTileScale', true);
+	assert.equal(h.getMobileScale(), 380);
+	assert.equal(h.tab.updates, 1);
+	let definitions = h.tab.getSettingDefinitions();
+	assert.equal(definitions[0]?.name, 'Desktop tile scale');
+	assert.equal(definitions[2]?.visible?.(), true);
+	const mobileSlider = renderSlider(definitions[2]);
+	assert.deepEqual(mobileSlider.limits, [1, 20, 1]);
+	assert.equal(mobileSlider.value, tileScaleToLevel(380));
+	assert.equal(mobileSlider.tooltip, 'Reset mobile tile scale');
+	mobileSlider.change(3);
+	await new Promise<void>(resolve => setImmediate(resolve));
+	assert.deepEqual(h.mobileScales, [30]);
+	assert.equal(h.getScale(), 380);
+	await h.tab.setControlValue('separateMobileTileScale', false);
+	definitions = h.tab.getSettingDefinitions();
+	assert.equal(definitions[0]?.name, 'Tile scale');
+	assert.equal(definitions[2]?.visible?.(), false);
+	assert.equal(h.getMobileScale(), 30);
+	await h.tab.setControlValue('separateMobileTileScale', true);
+	assert.equal(h.getMobileScale(), 30);
+	assert.equal(renderSlider(h.tab.getSettingDefinitions()[2]!).value, 3);
+});
+
+void test('desktop and mobile slider reset are independent and both restore fixed default level eight', async () => {
+	const h = await harness({ scale: 380, separateMobile: true, mobileScale: 1150 });
+	const definitions = h.tab.getSettingDefinitions();
+	renderSlider(definitions[2]!).reset();
+	await new Promise<void>(resolve => setImmediate(resolve));
+	assert.equal(h.getMobileScale(), 100);
+	assert.equal(h.getScale(), 380);
+	assert.deepEqual(h.mobileScales, [100]);
+	assert.deepEqual(h.scales, []);
+	renderSlider(definitions[0]!).reset();
+	await new Promise<void>(resolve => setImmediate(resolve));
+	assert.equal(h.getScale(), 100);
+	assert.equal(h.getMobileScale(), 100);
+	assert.deepEqual(h.scales, [100]);
+	assert.equal(h.tab.updates, 2);
+});
+
+void test('mobile slider reports storage failures and failed native toggles do not rebuild settings', async () => {
+	const h = await harness({ fail: true, separateMobile: true });
+	const mobileSlider = renderSlider(h.tab.getSettingDefinitions()[2]!);
+	mobileSlider.change(9);
+	mobileSlider.reset();
+	await new Promise<void>(resolve => setImmediate(resolve));
+	assert.equal(h.notices.length, 2);
+	assert.equal(h.tab.updates, 0);
+	await assert.rejects(h.tab.setControlValue('separateMobileTileScale', false), /Storage unavailable/);
+	assert.equal(h.tab.updates, 0);
 });
 
 void test('native section toggle reads saved visibility and routes only boolean changes to the settings host', async () => {

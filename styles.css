@@ -2437,7 +2437,7 @@ body.is-android .modal.section-gallery-lightbox .section-gallery-lightbox-footer
 }
 
 .section-gallery-safe-area-probe {
-	--section-gallery-build-version: 0.9.8;
+	--section-gallery-build-version: 0.9.9;
 
 	position: fixed;
 	visibility: hidden;

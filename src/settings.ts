@@ -8,6 +8,8 @@ export const MAX_TILE_SCALE = 100_000;
 export interface GallerySettings extends Record<string, unknown> {
 	layoutMode: GalleryLayoutMode;
 	tileScale: number;
+	separateMobileTileScale: boolean;
+	mobileTileScale: number | null;
 	showSections: boolean;
 	version: 1;
 }
@@ -30,6 +32,11 @@ export function normalizeGallerySettings(value: unknown): GallerySettings {
 		...saved,
 		layoutMode: saved.layoutMode === 'aspect' ? 'aspect' : 'square',
 		tileScale: normalizeTileScale(saved.tileScale),
+		separateMobileTileScale: saved.separateMobileTileScale === true,
+		// An unset override inherits the current shared size on first enable.
+		mobileTileScale: typeof saved.mobileTileScale === 'number' && Number.isFinite(saved.mobileTileScale)
+			? normalizeTileScale(saved.mobileTileScale)
+			: null,
 		showSections: typeof saved.showSections === 'boolean' ? saved.showSections : true,
 		version: 1,
 	};

@@ -65,13 +65,46 @@ void test('larger internal tile sizes survive settings serialization without cha
 
 void test('legacy settings keep their layout and gain the original tile scale', () => {
 	assert.deepEqual(normalizeGallerySettings({ layoutMode: 'aspect', version: 1 }), {
-		layoutMode: 'aspect', tileScale: 100, showSections: true, version: 1,
+		layoutMode: 'aspect', tileScale: 100, separateMobileTileScale: false,
+		mobileTileScale: null, showSections: true, version: 1,
 	});
 	for (const value of [null, [], undefined, 'invalid', { layoutMode: 'invalid' }]) {
 		assert.equal(normalizeGallerySettings(value).layoutMode, 'square');
 		assert.equal(normalizeGallerySettings(value).tileScale, 100);
 		assert.equal(normalizeGallerySettings(value).showSections, true);
 	}
+});
+
+void test('separate mobile sizes default off and invalid overrides remain unset without rewriting the shared size', () => {
+	for (const value of [null, undefined, [], 'invalid', { tileScale: 380 }]) {
+		const settings = normalizeGallerySettings(value);
+		assert.equal(settings.separateMobileTileScale, false);
+		assert.equal(settings.mobileTileScale, null);
+	}
+	for (const mobileTileScale of [undefined, null, '150', {}, [], NaN, Infinity, -Infinity]) {
+		const settings = normalizeGallerySettings({ tileScale: 380, separateMobileTileScale: true, mobileTileScale });
+		assert.equal(settings.tileScale, 380);
+		assert.equal(settings.separateMobileTileScale, true);
+		assert.equal(settings.mobileTileScale, null);
+	}
+	for (const separateMobileTileScale of [undefined, null, 0, 1, 'true', [], {}]) {
+		assert.equal(normalizeGallerySettings({ separateMobileTileScale }).separateMobileTileScale, false);
+	}
+});
+
+void test('desktop and mobile legacy percentages serialize exactly and mobile extremes remain bounded', () => {
+	for (const mobileTileScale of [10, 123, 380, 1150, 1880, 10000]) {
+		const saved = { tileScale: 144, mobileTileScale, separateMobileTileScale: true, custom: { keep: true } };
+		const normalized = normalizeGallerySettings(saved);
+		const restored = normalizeGallerySettings(JSON.parse(JSON.stringify(normalized)));
+		assert.equal(restored.tileScale, 144);
+		assert.equal(restored.mobileTileScale, mobileTileScale);
+		assert.equal(restored.separateMobileTileScale, true);
+		assert.deepEqual(restored.custom, { keep: true });
+		assert.deepEqual(saved, { tileScale: 144, mobileTileScale, separateMobileTileScale: true, custom: { keep: true } });
+	}
+	assert.equal(normalizeGallerySettings({ mobileTileScale: 0 }).mobileTileScale, MIN_TILE_SCALE);
+	assert.equal(normalizeGallerySettings({ mobileTileScale: MAX_TILE_SCALE + 1 }).mobileTileScale, MAX_TILE_SCALE);
 });
 
 void test('section visibility accepts only boolean preferences and defaults on for legacy or malformed data', () => {

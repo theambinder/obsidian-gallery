@@ -672,8 +672,25 @@ void test('tile scale changes only the scoped layout variable without rebuilding
 	assert.equal(view.renderRevision, revision, 'Large tiles still resize without rebuilding previews');
 });
 
+void test('new gallery views initialize from the effective platform scale instead of the shared desktop preference', async () => {
+	const h = await createView({
+		getLayoutMode: () => 'square',
+		getTileScale: () => { throw new Error('The shared desktop getter must not size a new mobile gallery'); },
+		getEffectiveTileScale: () => 380,
+	});
+	h.view.refresh = () => undefined;
+	await h.view.onOpen();
+	assert.equal(h.css['--section-gallery-tile-scale'], '3.8');
+	const writes = h.cssWrites.length;
+	h.setContentWidth(190);
+	for (const resize of h.resizeListeners) resize();
+	assert.equal(h.css['--section-gallery-tile-scale'], '3.8');
+	assert.equal(h.cssWrites.length, writes, 'Pane resize does not reinterpret either saved platform scale');
+	await h.view.onClose();
+});
+
 void test('pane ResizeObserver preserves the selected scale and media state while updating visibility only', async () => {
-	const h = await createView({ getLayoutMode: () => 'square', getTileScale: () => 150 });
+	const h = await createView({ getLayoutMode: () => 'square', getEffectiveTileScale: () => 150 });
 	const observer = installViewResizeObserver(h.view);
 	h.view.refresh = () => undefined;
 	await h.view.onOpen();
@@ -722,7 +739,7 @@ void test('pane ResizeObserver preserves the selected scale and media state whil
 });
 
 void test('fallback window resize preserves scale through hidden drawer changes and removes its listener on close', async () => {
-	const h = await createView({ getLayoutMode: () => 'square', getTileScale: () => 120 });
+	const h = await createView({ getLayoutMode: () => 'square', getEffectiveTileScale: () => 120 });
 	h.view.refresh = () => undefined;
 	await h.view.onOpen();
 	assert.equal(h.resizeListeners.size, 1);
@@ -750,7 +767,7 @@ void test('fallback window resize preserves scale through hidden drawer changes 
 });
 
 void test('keyboard focus state is registered on the gallery subtree, not the document', async () => {
-	const h = await createView({ getLayoutMode: () => 'square', getTileScale: () => 100 });
+	const h = await createView({ getLayoutMode: () => 'square', getEffectiveTileScale: () => 100 });
 	h.view.setupResizeHandling = () => undefined;
 	h.view.refresh = () => undefined;
 	await h.view.onOpen();
@@ -792,7 +809,7 @@ void test('modality changes coalesce before paint and close cancels pending focu
 });
 
 void test('handled summary keys refresh focus-visible even when expansion stops key bubbling without moving focus', async () => {
-	const h = await createView({ getLayoutMode: () => 'square', getTileScale: () => 100 });
+	const h = await createView({ getLayoutMode: () => 'square', getEffectiveTileScale: () => 100 });
 	h.view.setupResizeHandling = () => undefined;
 	h.view.refresh = () => undefined;
 	await h.view.onOpen();

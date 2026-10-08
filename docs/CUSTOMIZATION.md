@@ -27,6 +27,8 @@ body .section-gallery-view {
 
 Prefer the **Tile scale** setting for overall thumbnail size. Its 20 numbered levels represent fixed scales regardless of panel width, including larger sizes beyond the previous internal 500% limit. Reset restores level 8, the original 100% sizing. The grid still fills the panel width; changing that width changes the number of columns, not the selected scale number. Neighboring levels can produce the same columns at a given width. The runtime scale CSS variable is managed by the plugin. Internal swipe offsets, filmstrip widths, safe-area variables and transforms are calculated by the viewer and are not a stable customization API. Overriding them can break touch layout or system-bar clearance.
 
+Sizing is shared by default. Enable **Use separate mobile tile scale** to reveal **Desktop tile scale** and **Mobile tile scale** controls. The first mobile value inherits the current shared size; disabling the option returns to shared sizing and preserves the mobile value for later. Each reset affects only its own slider. Changing size updates the grid without rebuilding its tiles or clearing the note's thumbnail cache.
+
 To display one continuous media grid without section headings, disable **Settings → Gallery → Show sections**. This changes grouping rather than styling; search by section heading and section labels in the viewer remain available.
 
 To opt out of pinned headings without affecting other panes:

@@ -13,9 +13,14 @@ interface TestPlugin {
 	showDiagnostics(): void;
 	isLayoutReady: boolean;
 	getTileScale(): number;
+	getEffectiveTileScale(): number;
+	getMobileTileScale(): number;
+	getSeparateMobileTileScale(): boolean;
 	getLayoutMode(): string;
 	getShowSections(): boolean;
 	setTileScale(value: number): Promise<void>;
+	setMobileTileScale(value: number): Promise<void>;
+	setSeparateMobileTileScale(value: boolean): Promise<void>;
 	setLayoutMode(value: 'square' | 'aspect'): Promise<void>;
 	setShowSections(value: boolean): Promise<void>;
 }
@@ -44,6 +49,7 @@ const pluginBundle = build({
 
 async function harness(options: {
 	isMobile?: boolean;
+	isAndroid?: boolean;
 	data?: Promise<unknown>;
 	saveData?: (data: unknown) => Promise<void>;
 	setViewState?: Promise<void>;
@@ -138,7 +144,7 @@ async function harness(options: {
 			Modal: class {},
 			MarkdownView: class {},
 			TFile: class {},
-			Platform: { isMobile: options.isMobile ?? true },
+			Platform: { isMobile: options.isMobile ?? true, isAndroidApp: options.isAndroid ?? false, isIosApp: (options.isMobile ?? true) && !options.isAndroid },
 			Notice: class { constructor(message: string) { notices.push(message); } },
 		} : nodeRequire(specifier) as unknown,
 	});
@@ -231,10 +237,10 @@ void test('tile scale loads with the saved layout and applies live to existing v
 	await h.plugin.setTileScale(123);
 	assert.equal(h.plugin.getTileScale(), 123);
 	assert.deepEqual(h.calls.scales, [123]);
-	assert.deepEqual(h.calls.saved, [{ layoutMode: 'aspect', tileScale: 123, showSections: true, custom: true, version: 1 }]);
+	assert.deepEqual(h.calls.saved, [{ layoutMode: 'aspect', tileScale: 123, separateMobileTileScale: false, mobileTileScale: null, showSections: true, custom: true, version: 1 }]);
 	await h.plugin.setLayoutMode('square');
 	assert.deepEqual(h.calls.layouts, ['square']);
-	assert.deepEqual(h.calls.saved.at(-1), { layoutMode: 'square', tileScale: 123, showSections: true, custom: true, version: 1 });
+	assert.deepEqual(h.calls.saved.at(-1), { layoutMode: 'square', tileScale: 123, separateMobileTileScale: false, mobileTileScale: null, showSections: true, custom: true, version: 1 });
 });
 
 void test('saved tile numbers remain stable on desktop and mobile without measuring a gallery pane', async () => {
@@ -249,6 +255,134 @@ void test('saved tile numbers remain stable on desktop and mobile without measur
 	}
 });
 
+const scalePlatforms = [
+	{ name: 'desktop', isMobile: false, isAndroid: false },
+	{ name: 'iOS', isMobile: true, isAndroid: false },
+	{ name: 'Android', isMobile: true, isAndroid: true },
+];
+
+for (const platform of scalePlatforms) {
+	void test(`${platform.name} shares the legacy scale by default and initializes a separate mobile scale without a size jump`, async () => {
+		const h = await harness({ ...platform, data: Promise.resolve({ tileScale: 380, custom: true }) });
+		await h.plugin.onload();
+		h.makeExistingView();
+		assert.equal(h.plugin.getSeparateMobileTileScale(), false);
+		assert.equal(h.plugin.getEffectiveTileScale(), 380);
+		assert.equal(h.plugin.getMobileTileScale(), 380);
+		assert.equal(h.calls.saved.length, 0, 'Opening legacy settings must not migrate the saved file');
+		await h.plugin.setTileScale(123);
+		assert.equal(h.plugin.getEffectiveTileScale(), 123);
+		await h.plugin.setSeparateMobileTileScale(true);
+		assert.equal(h.plugin.getMobileTileScale(), 123, 'First enable inherits the current shared size, not a default');
+		assert.equal(h.plugin.getEffectiveTileScale(), 123);
+		assert.deepEqual(h.calls.scales, [123], 'Enabling the identical inherited size does not change the view or rebuild previews');
+		assert.equal(h.calls.refresh, 0);
+		assert.equal(h.calls.saved.at(-1)?.mobileTileScale, 123);
+		assert.equal(h.calls.saved.at(-1)?.custom, true);
+	});
+
+	void test(`${platform.name} applies only its own tile size while keeping both choices across disable, reenable and restart`, async () => {
+		const h = await harness({
+			...platform,
+			data: Promise.resolve({ tileScale: 380, mobileTileScale: 1150, separateMobileTileScale: true, layoutMode: 'aspect', showSections: false }),
+		});
+		await h.plugin.onload();
+		h.makeExistingView();
+		assert.equal(h.plugin.getTileScale(), 380);
+		assert.equal(h.plugin.getMobileTileScale(), 1150);
+		assert.equal(h.plugin.getEffectiveTileScale(), platform.isMobile ? 1150 : 380);
+		assert.deepEqual(h.calls.saved, []);
+		await h.plugin.setTileScale(150);
+		assert.equal(h.plugin.getEffectiveTileScale(), platform.isMobile ? 1150 : 150);
+		assert.deepEqual(h.calls.scales, platform.isMobile ? [] : [150]);
+		await h.plugin.setMobileTileScale(220);
+		assert.equal(h.plugin.getEffectiveTileScale(), platform.isMobile ? 220 : 150);
+		assert.deepEqual(h.calls.scales, platform.isMobile ? [220] : [150]);
+		await h.plugin.setSeparateMobileTileScale(false);
+		assert.equal(h.plugin.getEffectiveTileScale(), 150);
+		assert.equal(h.plugin.getMobileTileScale(), 220);
+		await h.plugin.setTileScale(180);
+		assert.equal(h.plugin.getEffectiveTileScale(), 180);
+		assert.equal(h.plugin.getMobileTileScale(), 220, 'Shared changes while disabled preserve the saved override');
+		await h.plugin.setSeparateMobileTileScale(true);
+		assert.equal(h.plugin.getEffectiveTileScale(), platform.isMobile ? 220 : 180);
+		assert.deepEqual(h.calls.scales, platform.isMobile ? [220, 150, 180, 220] : [150, 180]);
+		assert.equal(h.calls.refresh, 0, 'Changing platform sizes must not rebuild or reset gallery previews');
+		h.plugin.onunload();
+		const restarted = await harness({ ...platform, data: Promise.resolve(JSON.parse(JSON.stringify(h.calls.saved.at(-1)))) });
+		await restarted.plugin.onload();
+		assert.equal(restarted.plugin.getTileScale(), 180);
+		assert.equal(restarted.plugin.getMobileTileScale(), 220);
+		assert.equal(restarted.plugin.getSeparateMobileTileScale(), true);
+		assert.equal(restarted.plugin.getEffectiveTileScale(), platform.isMobile ? 220 : 180);
+		assert.equal(restarted.plugin.getLayoutMode(), 'aspect');
+		assert.equal(restarted.plugin.getShowSections(), false);
+		assert.deepEqual(restarted.calls.saved, []);
+	});
+}
+
+void test('a malformed mobile override falls back to the legacy shared percentage until first explicit enable', async () => {
+	const h = await harness({ isMobile: true, data: Promise.resolve({ tileScale: 380, separateMobileTileScale: true, mobileTileScale: '120' }) });
+	await h.plugin.onload();
+	assert.equal(h.plugin.getEffectiveTileScale(), 380);
+	assert.equal(h.calls.saved.length, 0);
+	await h.plugin.setSeparateMobileTileScale(true);
+	assert.equal(h.plugin.getMobileTileScale(), 380);
+	assert.equal(h.calls.saved.at(-1)?.mobileTileScale, 380);
+});
+
+void test('mobile and shared settings use the serial writer so rapid changes cannot overwrite the latest two sizes', async () => {
+	const firstSave = deferred<void>();
+	let writes = 0;
+	const h = await harness({
+		isMobile: true, data: Promise.resolve({ tileScale: 380, custom: { preserve: true } }),
+		saveData: () => ++writes === 1 ? firstSave.promise : Promise.resolve(),
+	});
+	await h.plugin.onload();
+	h.makeExistingView();
+	const enabling = h.plugin.setSeparateMobileTileScale(true);
+	const mobileChange = h.plugin.setMobileTileScale(30);
+	const desktopChange = h.plugin.setTileScale(500);
+	const disable = h.plugin.setSeparateMobileTileScale(false);
+	const reenable = h.plugin.setSeparateMobileTileScale(true);
+	const newerMobileChange = h.plugin.setMobileTileScale(80);
+	const layoutChange = h.plugin.setLayoutMode('aspect');
+	const sectionChange = h.plugin.setShowSections(false);
+	await Promise.resolve();
+	await Promise.resolve();
+	assert.equal(h.calls.saved.length, 1);
+	firstSave.resolve();
+	await Promise.all([enabling, mobileChange, desktopChange, disable, reenable, newerMobileChange, layoutChange, sectionChange]);
+	assert.equal(h.calls.saved.length, 8);
+	assert.deepEqual(h.calls.saved.at(-1), {
+		tileScale: 500, mobileTileScale: 80, separateMobileTileScale: true,
+		layoutMode: 'aspect', showSections: false, custom: { preserve: true }, version: 1,
+	});
+	assert.deepEqual(h.calls.scales, [30, 500, 30, 80]);
+	assert.equal(h.plugin.getEffectiveTileScale(), 80);
+});
+
+void test('failed mobile and separate-mode writes can be retried without resetting live or unrelated preferences', async () => {
+	let writes = 0;
+	const h = await harness({
+		isMobile: true, data: Promise.resolve({ tileScale: 380, layoutMode: 'aspect', custom: true }),
+		saveData: () => ++writes <= 2 ? Promise.reject(new Error('Storage unavailable')) : Promise.resolve(),
+	});
+	await h.plugin.onload();
+	h.makeExistingView();
+	await assert.rejects(h.plugin.setSeparateMobileTileScale(true), /Storage unavailable/);
+	assert.equal(h.plugin.getSeparateMobileTileScale(), true);
+	assert.equal(h.plugin.getMobileTileScale(), 380);
+	await assert.rejects(h.plugin.setMobileTileScale(30), /Storage unavailable/);
+	assert.equal(h.plugin.getEffectiveTileScale(), 30);
+	await h.plugin.setMobileTileScale(30);
+	assert.deepEqual(h.calls.scales, [30], 'Retrying the same value does not restart the live tile layout');
+	assert.equal(h.calls.saved.at(-1)?.mobileTileScale, 30);
+	assert.equal(h.calls.saved.at(-1)?.tileScale, 380);
+	assert.equal(h.calls.saved.at(-1)?.custom, true);
+	assert.equal(h.calls.saved.at(-1)?.layoutMode, 'aspect');
+});
+
 void test('section visibility loads and applies live without altering layout or tile scale', async () => {
 	const h = await harness({ data: Promise.resolve({ layoutMode: 'aspect', tileScale: 30, showSections: false }) });
 	await h.plugin.onload();
@@ -258,7 +392,7 @@ void test('section visibility loads and applies live without altering layout or 
 	await h.plugin.setShowSections(true);
 	assert.equal(h.plugin.getShowSections(), true);
 	assert.deepEqual(h.calls.sectionVisibility, [true]);
-	assert.deepEqual(h.calls.saved.at(-1), { layoutMode: 'aspect', tileScale: 30, showSections: true, version: 1 });
+	assert.deepEqual(h.calls.saved.at(-1), { layoutMode: 'aspect', tileScale: 30, separateMobileTileScale: false, mobileTileScale: null, showSections: true, version: 1 });
 	assert.deepEqual(h.calls.scales, []);
 	assert.deepEqual(h.calls.layouts, []);
 });
@@ -278,7 +412,7 @@ void test('the fixed largest tile size persists across plugin restart and resets
 	assert.equal(h.plugin.getTileScale(), largest);
 	assert.deepEqual(h.calls.scales, [largest]);
 	assert.deepEqual(h.calls.saved.at(-1), {
-		layoutMode: 'aspect', tileScale: largest, showSections: false, custom: true, version: 1,
+		layoutMode: 'aspect', tileScale: largest, separateMobileTileScale: false, mobileTileScale: null, showSections: false, custom: true, version: 1,
 	});
 	h.plugin.onunload();
 	const restarted = await harness({
@@ -293,7 +427,7 @@ void test('the fixed largest tile size persists across plugin restart and resets
 	await restarted.plugin.setTileScale(100);
 	assert.equal(restarted.plugin.getTileScale(), 100);
 	assert.deepEqual(restarted.calls.saved.at(-1), {
-		layoutMode: 'aspect', tileScale: 100, showSections: false, custom: true, version: 1,
+		layoutMode: 'aspect', tileScale: 100, separateMobileTileScale: false, mobileTileScale: null, showSections: false, custom: true, version: 1,
 	});
 });
 
@@ -312,10 +446,10 @@ void test('concurrent scale, layout and section updates serialize persistence wi
 	firstSave.resolve();
 	await Promise.all([scaleChange, layoutChange, newerScaleChange, sectionChange]);
 	assert.deepEqual(h.calls.saved, [
-		{ layoutMode: 'square', tileScale: 150, showSections: true, version: 1 },
-		{ layoutMode: 'aspect', tileScale: 150, showSections: true, version: 1 },
-		{ layoutMode: 'aspect', tileScale: 180, showSections: true, version: 1 },
-		{ layoutMode: 'aspect', tileScale: 180, showSections: false, version: 1 },
+		{ layoutMode: 'square', tileScale: 150, separateMobileTileScale: false, mobileTileScale: null, showSections: true, version: 1 },
+		{ layoutMode: 'aspect', tileScale: 150, separateMobileTileScale: false, mobileTileScale: null, showSections: true, version: 1 },
+		{ layoutMode: 'aspect', tileScale: 180, separateMobileTileScale: false, mobileTileScale: null, showSections: true, version: 1 },
+		{ layoutMode: 'aspect', tileScale: 180, separateMobileTileScale: false, mobileTileScale: null, showSections: false, version: 1 },
 	]);
 });
 
@@ -347,9 +481,13 @@ void test('disabled plugin does not accept or persist new settings changes', asy
 	await h.plugin.setTileScale(180);
 	await h.plugin.setLayoutMode('aspect');
 	await h.plugin.setShowSections(false);
+	await h.plugin.setMobileTileScale(180);
+	await h.plugin.setSeparateMobileTileScale(true);
 	assert.equal(h.plugin.getTileScale(), 100);
 	assert.equal(h.plugin.getLayoutMode(), 'square');
 	assert.equal(h.plugin.getShowSections(), true);
+	assert.equal(h.plugin.getMobileTileScale(), 100);
+	assert.equal(h.plugin.getSeparateMobileTileScale(), false);
 	assert.equal(h.calls.saved.length, 0);
 });
 

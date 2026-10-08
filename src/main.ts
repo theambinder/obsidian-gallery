@@ -199,6 +199,20 @@ export default class SectionGalleryPlugin extends Plugin {
 		return this.gallerySettings.tileScale;
 	}
 
+	getSeparateMobileTileScale(): boolean {
+		return this.gallerySettings.separateMobileTileScale;
+	}
+
+	getMobileTileScale(): number {
+		return this.gallerySettings.mobileTileScale ?? this.gallerySettings.tileScale;
+	}
+
+	getEffectiveTileScale(): number {
+		return Platform.isMobile && this.getSeparateMobileTileScale()
+			? this.getMobileTileScale()
+			: this.getTileScale();
+	}
+
 	getShowSections(): boolean {
 		return this.gallerySettings.showSections;
 	}
@@ -227,12 +241,42 @@ export default class SectionGalleryPlugin extends Plugin {
 		if (this.isUnloaded) {
 			return;
 		}
-		const scale = normalizeTileScale(value);
-		this.gallerySettings.tileScale = scale;
-		for (const view of this.getGalleryViews()) {
-			view.setTileScale(scale);
-		}
+		const previousScale = this.getEffectiveTileScale();
+		this.gallerySettings.tileScale = normalizeTileScale(value);
+		this.applyEffectiveTileScale(previousScale);
 		await this.saveSettings();
+	}
+
+	async setMobileTileScale(value: number): Promise<void> {
+		if (this.isUnloaded) {
+			return;
+		}
+		const previousScale = this.getEffectiveTileScale();
+		this.gallerySettings.mobileTileScale = normalizeTileScale(value);
+		this.applyEffectiveTileScale(previousScale);
+		await this.saveSettings();
+	}
+
+	async setSeparateMobileTileScale(value: boolean): Promise<void> {
+		if (this.isUnloaded) {
+			return;
+		}
+		const previousScale = this.getEffectiveTileScale();
+		if (value && this.gallerySettings.mobileTileScale === null) {
+			this.gallerySettings.mobileTileScale = this.gallerySettings.tileScale;
+		}
+		this.gallerySettings.separateMobileTileScale = value;
+		this.applyEffectiveTileScale(previousScale);
+		await this.saveSettings();
+	}
+
+	private applyEffectiveTileScale(previousScale: number): void {
+		const scale = this.getEffectiveTileScale();
+		if (scale !== previousScale) {
+			for (const view of this.getGalleryViews()) {
+				view.setTileScale(scale);
+			}
+		}
 	}
 
 	async setShowSections(value: boolean): Promise<void> {

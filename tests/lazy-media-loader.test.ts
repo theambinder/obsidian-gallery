@@ -155,7 +155,9 @@ function harness(concurrency?: number, options: LazyMediaLoaderOptions = {}, ios
 	const canvasBackingStores: { width: number; height: number }[] = [];
 	const pendingEncodes: BlobCallback[] = [];
 	const createdUrls: string[] = [];
+	const createdBlobs: Blob[] = [];
 	const revokedUrls: string[] = [];
+	const encodeRequests: { type: string; quality: number | undefined }[] = [];
 	const observers: { emit(image: FakeImage, visible: boolean): void; emitMany(images: FakeImage[], visible: boolean): void }[] = [];
 	const previewVideos: PreviewVideo[] = [];
 	const timers = new Map<number, () => void>();
@@ -164,6 +166,11 @@ function harness(concurrency?: number, options: LazyMediaLoaderOptions = {}, ios
 	let objectUrls = 0;
 	let deferEncodes = false;
 	let thumbnailBytes = 9;
+	let webpEncoderAvailable = true;
+	let jpegBytes = 9;
+	let jpegEncoderFails = false;
+	let canvasOpaque = true;
+	let alphaReadFails = false;
 	let manualCheck: FrameRequestCallback | null = null;
 	class FakeObserver {
 		constructor(private callback: IntersectionObserverCallback) {
@@ -194,9 +201,10 @@ function harness(concurrency?: number, options: LazyMediaLoaderOptions = {}, ios
 		setTimeout: (callback: () => void) => { timers.set(++nextTimer, callback); return nextTimer; },
 		clearTimeout: (id: number) => { timers.delete(id); },
 		URL: {
-			createObjectURL: () => {
+			createObjectURL: (blob: Blob) => {
 				const url = `blob:test-${++objectUrls}`;
 				createdUrls.push(url);
+				createdBlobs.push(blob);
 				return url;
 			},
 			revokeObjectURL: (url: string) => { revokedUrls.push(url); },
@@ -221,11 +229,24 @@ function harness(concurrency?: number, options: LazyMediaLoaderOptions = {}, ios
 			}
 			const canvas = {
 				width: 0, height: 0,
-				getContext: () => ({ drawImage: () => undefined }),
-				toBlob(callback: BlobCallback) {
+				getContext: () => ({
+					drawImage: () => undefined,
+					getImageData: () => {
+						if (alphaReadFails) throw new Error('Canvas inspection unavailable');
+						const data = new Uint8ClampedArray(canvas.width * canvas.height * 4).fill(255);
+						if (!canvasOpaque) data[3] = 128;
+						return { data };
+					},
+				}),
+				toBlob(callback: BlobCallback, type = 'image/png', quality?: number) {
 					canvases.push({ width: this.width, height: this.height });
-					if (deferEncodes) pendingEncodes.push(callback);
-					else callback(new Blob([new Uint8Array(thumbnailBytes)]));
+					encodeRequests.push({ type, quality });
+					const encodedType = type === 'image/webp' && !webpEncoderAvailable ? 'image/png' : type;
+					const complete = () => callback(type === 'image/jpeg' && jpegEncoderFails ? null : new Blob([
+						new Uint8Array(type === 'image/jpeg' ? jpegBytes : thumbnailBytes),
+					], { type: encodedType }));
+					if (deferEncodes) pendingEncodes.push(complete);
+					else complete();
 				},
 			};
 			canvasBackingStores.push(canvas);
@@ -254,10 +275,18 @@ function harness(concurrency?: number, options: LazyMediaLoaderOptions = {}, ios
 	);
 	return {
 		loader, reads, pendingReads, bitmapOptions, bitmaps, canvases, canvasBackingStores,
-		createdUrls, pendingEncodes, revokedUrls, previewVideos, timers,
+		createdUrls, createdBlobs, encodeRequests, pendingEncodes, revokedUrls, previewVideos, timers,
 		deferEncoding() { deferEncodes = true; },
 		completeEncoding() { pendingEncodes.shift()?.(new Blob([new Uint8Array(thumbnailBytes)])); },
 		setThumbnailBytes(bytes: number) { thumbnailBytes = bytes; },
+		usePngCanvasFallback(bytes: number, fallbackJpegBytes: number, opaque = true) {
+			webpEncoderAvailable = false;
+			thumbnailBytes = bytes;
+			jpegBytes = fallbackJpegBytes;
+			canvasOpaque = opaque;
+		},
+		failJpegEncoder() { jpegEncoderFails = true; },
+		failAlphaRead() { alphaReadFails = true; },
 		setBitmapFactory(factory: (options: ImageBitmapOptions) => Promise<ImageBitmap>) {
 			bitmapFactory = factory;
 		},
@@ -667,6 +696,231 @@ void test('recent offscreen decoded sources keep their src and loaded state with
 	assert.equal(image.src, '');
 	assert.equal(image.containerClasses.has('is-cached-preview'), false);
 	assert.deepEqual(h.revokedUrls, [url]);
+});
+
+for (const ios of [false, true]) {
+	for (const count of [100, 341]) {
+		void test(`${ios ? 'iOS' : 'Android'} sequential scroll of ${count} opaque PNG-fallback thumbnails reuses the open-note cache on return`, async () => {
+			const h = harness(undefined, {}, ios);
+			// Reproduce a WebView which accepts WebP as input but silently encodes
+			// canvas output as large PNGs. 341 compact 33 KiB stills fit 16 MiB;
+			// the same previews encoded as 256 KiB PNGs did not fit the old 8 MiB.
+			h.usePngCanvasFallback(256 * 1024, 33 * 1024);
+			const visited: FakeImage[] = [];
+			for (let index = 0; index < count; index += 1) {
+				const image = new FakeImage();
+				const path = `long-note-${index}.png`;
+				visited.push(image);
+				h.observe(image, item(path));
+				h.show(image);
+				await completeImage(h, path, image);
+				h.show(image, false);
+			}
+			const decodedThumbnailBytes = 384 * 216 * 4;
+			const retainedCount = Math.floor((24 * 1024 * 1024) / decodedThumbnailBytes);
+			assert.equal(visited.filter(image => image.src).length, retainedCount,
+				'Offscreen decoded sources stay within the actual-pixel retention budget');
+			assert.equal(visited[0]!.src, '', 'Old decoded sources are released rather than held without a limit');
+			const recent = visited.at(-1)!;
+			const recentAssignments = recent.srcAssignments;
+			h.show(recent);
+			assert.equal(recent.srcAssignments, recentAssignments, 'A recent decoded source is repinned without src reassignment');
+			h.show(recent, false);
+			const initialReadCount = h.reads.length;
+			const initialDecodeCount = h.bitmapOptions.length;
+			const initialEncodeCount = h.encodeRequests.length;
+			for (const image of visited) {
+				h.show(image);
+				assert.ok(image.src.startsWith('blob:'), 'Cached still is attached synchronously, not through the lazy worker');
+				assert.equal(image.containerClasses.has('is-loaded'), true);
+				assert.equal(image.containerClasses.has('is-cached-preview'), true);
+				h.show(image, false);
+			}
+			await settle();
+			assert.equal(h.reads.length, initialReadCount, 'Returning never rereads the full-resolution source while its encoded preview is cached');
+			assert.equal(h.bitmapOptions.length, initialDecodeCount, 'No second full-source decode is scheduled by the loader');
+			assert.equal(h.encodeRequests.length, initialEncodeCount, 'No second thumbnail render/encode is scheduled');
+			assert.equal(h.createdBlobs.length, count);
+			assert.ok(h.createdBlobs.every(blob => blob.type === 'image/jpeg' && blob.size === 33 * 1024));
+			assert.ok(h.createdBlobs.reduce((bytes, blob) => bytes + blob.size, 0) <= 16 * 1024 * 1024);
+			assert.equal(h.revokedUrls.length, 0);
+			h.loader.disconnect();
+			assert.ok(visited.every(image => image.src === '' && !image.containerClasses.has('is-cached-preview')));
+			assert.equal(h.revokedUrls.length, count);
+			assert.equal(new Set(h.revokedUrls).size, count);
+			assert.ok(h.bitmaps.every(bitmap => bitmap.closed));
+			assert.ok(h.canvasBackingStores.every(canvas => canvas.width === 1 && canvas.height === 1));
+		});
+	}
+}
+
+void test('mobile WebP encoder fallback uses high-quality JPEG only for a confirmed opaque canvas', async () => {
+	const h = harness(1, {}, true);
+	h.usePngCanvasFallback(256 * 1024, 20 * 1024);
+	const image = new FakeImage();
+	h.observe(image, item('opaque.png'));
+	h.show(image);
+	await completeImage(h, 'opaque.png', image);
+	assert.deepEqual(h.encodeRequests, [
+		{ type: 'image/webp', quality: 0.76 },
+		{ type: 'image/jpeg', quality: 0.84 },
+	]);
+	assert.equal(h.createdBlobs[0]?.type, 'image/jpeg');
+	assert.equal(h.createdBlobs[0]?.size, 20 * 1024);
+	assert.deepEqual(h.canvases, [{ width: 384, height: 216 }, { width: 384, height: 216 }]);
+	assert.ok(h.canvasBackingStores.every(canvas => canvas.width === 1 && canvas.height === 1));
+	h.loader.disconnect();
+});
+
+void test('mobile PNG-fallback note cache prevents repeated source I/O even when decoded retention is disabled', async () => {
+	const h = harness(1, { retainedBytes: 0 }, true);
+	h.usePngCanvasFallback(256 * 1024, 33 * 1024);
+	let first!: FakeImage;
+	for (let index = 0; index < 100; index += 1) {
+		const image = new FakeImage();
+		const path = `encoded-note-${index}.png`;
+		if (index === 0) first = image;
+		h.observe(image, item(path));
+		h.show(image);
+		await completeImage(h, path, image);
+		h.show(image, false);
+		assert.equal(image.src, '');
+	}
+	h.show(first);
+	assert.equal(h.reads.length, 100, 'Returning to an older cached preview must not enqueue a 101st original-file read');
+	assert.equal(first.src, h.createdUrls[0]);
+	assert.equal(first.containerClasses.has('is-cached-preview'), true);
+	assert.equal(h.bitmapOptions.length, 100);
+	assert.equal(h.encodeRequests.length, 200);
+	h.loader.disconnect();
+	assert.equal(h.revokedUrls.length, 100);
+});
+
+void test('mobile PNG fallback keeps transparency and unknown alpha without JPEG flattening', async () => {
+	for (const alphaUnavailable of [false, true]) {
+		const h = harness(1, {}, true);
+		h.usePngCanvasFallback(100 * 1024, 20 * 1024, alphaUnavailable);
+		if (alphaUnavailable) h.failAlphaRead();
+		const image = new FakeImage();
+		h.observe(image, item('transparent.png'));
+		h.show(image);
+		await completeImage(h, 'transparent.png', image);
+		assert.equal(h.encodeRequests.length, 1, 'Uncertain or nonopaque pixels must retain their lossless PNG');
+		assert.equal(h.createdBlobs[0]?.type, 'image/png');
+		assert.equal(h.createdBlobs[0]?.size, 100 * 1024);
+		h.loader.disconnect();
+	}
+});
+
+void test('a failed or larger mobile JPEG fallback keeps the successful PNG and closes its canvas', async () => {
+	for (const jpegFails of [false, true]) {
+		const h = harness(1, {}, true);
+		h.usePngCanvasFallback(100, 200);
+		if (jpegFails) h.failJpegEncoder();
+		const image = new FakeImage();
+		h.observe(image, item('fallback-safe.png'));
+		h.show(image);
+		await completeImage(h, 'fallback-safe.png', image);
+		assert.equal(h.encodeRequests.length, 2);
+		assert.equal(h.createdBlobs[0]?.type, 'image/png');
+		assert.equal(h.createdBlobs[0]?.size, 100);
+		assert.ok(h.canvasBackingStores.every(canvas => canvas.width === 1 && canvas.height === 1));
+		h.loader.disconnect();
+	}
+});
+
+void test('closing a mobile note during asynchronous JPEG fallback frees its canvas without publishing a stale URL', async () => {
+	const h = harness(1, {}, true);
+	h.usePngCanvasFallback(256 * 1024, 33 * 1024);
+	h.deferEncoding();
+	const image = new FakeImage();
+	h.observe(image, item('late-jpeg.png'));
+	h.show(image);
+	h.pendingReads.get('late-jpeg.png')!.resolve(pngBytes());
+	await settle();
+	assert.equal(h.pendingEncodes.length, 1);
+	h.completeEncoding();
+	await settle();
+	assert.equal(h.pendingEncodes.length, 1, 'JPEG fallback is still pending after the unsupported WebP encoder returned PNG');
+	assert.equal(h.encodeRequests.at(-1)?.type, 'image/jpeg');
+	h.loader.disconnect();
+	h.completeEncoding();
+	await settle();
+	assert.equal(image.src, '');
+	assert.deepEqual(h.createdUrls, []);
+	assert.deepEqual(h.revokedUrls, []);
+	assert.ok(h.bitmaps.every(bitmap => bitmap.closed));
+	assert.ok(h.canvasBackingStores.every(canvas => canvas.width === 1 && canvas.height === 1));
+});
+
+void test('file changes during mobile JPEG fallback discard the old result and retry only the fresh identity', async () => {
+	const h = harness(1, {}, true);
+	h.usePngCanvasFallback(256 * 1024, 33 * 1024);
+	h.deferEncoding();
+	const image = new FakeImage();
+	const media = item('jpeg-change.png');
+	h.observe(image, media);
+	h.show(image);
+	h.pendingReads.get('jpeg-change.png')!.resolve(pngBytes());
+	await settle();
+	h.completeEncoding();
+	await settle();
+	assert.equal(h.encodeRequests.at(-1)?.type, 'image/jpeg');
+	media.file.stat.mtime += 1;
+	h.completeEncoding();
+	await settle();
+	assert.equal(image.src, '');
+	assert.deepEqual(h.createdUrls, []);
+	assert.equal(h.reads.length, 2);
+	h.pendingReads.get('jpeg-change.png')!.resolve(pngBytes());
+	await settle();
+	h.completeEncoding();
+	await settle();
+	h.completeEncoding();
+	await settle();
+	assert.ok(image.src.startsWith('blob:'));
+	assert.equal(h.createdUrls.length, 1);
+	assert.equal(h.createdBlobs[0]?.type, 'image/jpeg');
+	assert.ok(h.bitmaps.every(bitmap => bitmap.closed));
+	assert.ok(h.canvasBackingStores.every(canvas => canvas.width === 1 && canvas.height === 1));
+	h.loader.disconnect();
+	assert.deepEqual(h.revokedUrls, h.createdUrls);
+});
+
+void test('desktop WebP/PNG encoding retains its existing behavior without the mobile fallback', async () => {
+	const h = harness(1, {}, false, false);
+	h.usePngCanvasFallback(100 * 1024, 20 * 1024);
+	const image = new FakeImage();
+	h.observe(image, item('desktop.png'));
+	h.show(image);
+	await completeImage(h, 'desktop.png', image);
+	assert.equal(h.encodeRequests.length, 1);
+	assert.equal(h.createdBlobs[0]?.type, 'image/png');
+	h.loader.disconnect();
+});
+
+void test('large transparent mobile previews still obey the encoded byte budget and revoke evicted URLs once', async () => {
+	const h = harness(1, {}, true);
+	h.usePngCanvasFallback(1024 * 1024, 20 * 1024, false);
+	const visited: FakeImage[] = [];
+	for (let index = 0; index < 20; index += 1) {
+		const image = new FakeImage();
+		const path = `large-transparent-${index}.png`;
+		visited.push(image);
+		h.observe(image, item(path));
+		h.show(image);
+		await completeImage(h, path, image);
+		h.show(image, false);
+	}
+	assert.equal(h.revokedUrls.length, 4, 'The reusable encoded cache is bounded at 16 MiB even with expensive transparent PNGs');
+	assert.ok(visited.slice(0, 4).every(image => image.src === ''));
+	assert.ok(visited.slice(4).every(image => image.src.startsWith('blob:')));
+	const recent = visited.at(-1)!;
+	h.show(recent);
+	assert.equal(h.reads.length, 20);
+	h.loader.disconnect();
+	assert.equal(h.revokedUrls.length, 20);
+	assert.equal(new Set(h.revokedUrls).size, 20);
 });
 
 void test('decoded offscreen budget detaches the oldest source but leaves its encoded thumbnail reusable', async () => {

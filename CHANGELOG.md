@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 1.0.0 - 2026-10-10
+
+### Fixed
+
+- Keep desktop video tile selection outlines visible during keyboard navigation, including when a preview is unavailable.
+
 ## 0.9.9 - 2026-10-08
 
 ### Added

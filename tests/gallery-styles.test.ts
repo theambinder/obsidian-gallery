@@ -313,6 +313,27 @@ void test('desktop tile rings stay inside paint containment and below opaque sti
 	assert.match(rule('.section-gallery-view .section-gallery-tile'), /contain: layout paint style;/u);
 });
 
+void test('desktop video selection paints above positioned previews without changing focus state or mobile styling', () => {
+	for (const state of [':focus-visible', '.is-last-viewed']) {
+		const selector = `body:not(.is-mobile) .section-gallery-view .section-gallery-tile.is-video${state}::after`;
+		const overlay = rule(selector);
+		assert.match(overlay, /position: absolute;/u);
+		assert.match(overlay, /inset: 0;/u, 'Ring follows the tile, not the original-ratio video frame');
+		assert.match(overlay, /z-index: 4;/u, 'Ring stays above the duration badge at z-index 3');
+		assert.match(overlay, /outline: inherit;/u, 'Including the transparent last-viewed state when focus moves to the toolbar');
+		assert.match(overlay, /outline-offset: inherit;/u, 'Retain the contained two-pixel desktop ring');
+		assert.match(overlay, /border-radius: inherit;/u);
+		assert.match(overlay, /pointer-events: none;/u, 'Preview and tile clicks remain unchanged');
+		for (const declaration of ['display: block;', 'width: auto;', 'height: auto;', 'background: transparent;', 'transform: none;']) {
+			assert.ok(overlay.includes(declaration), `Reset error pseudo-element state: ${declaration}`);
+		}
+		assert.equal(rule(`.section-gallery-view .section-gallery-tile.is-video${state}::after`), '', 'No mobile selection overlay');
+	}
+	assert.match(rule('.section-gallery-view .section-gallery-tile.is-video.has-error::after'), /display: none;/u, 'An unfocused failed preview retains its existing placeholder');
+	assert.match(rule('.section-gallery-view .section-gallery-tile.has-error::after', 'transform:'), /rotate\(-45deg\)/u, 'Image error markers remain intact');
+	assert.match(rule('body:not(.is-mobile) .section-gallery-view.has-keyboard-focus .section-gallery-tile.is-last-viewed:not(:focus-visible)'), /outline-color: transparent;/u);
+});
+
 void test('original-fit thumbnails and video frames cap their inset so ten-percent tiles retain media', () => {
 	assert.match(rule('.section-gallery-view .section-gallery-tile'), /--section-gallery-effective-fit-inset: min\(var\(--section-gallery-fit-inset\), 10%\);/u);
 	for (const selector of [

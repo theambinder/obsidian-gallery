@@ -483,6 +483,26 @@ body:not(.is-mobile)
 	display: none;
 }
 
+/* Positioned video previews can paint over the tile's inset outline. Mirror
+   that same outline above the preview, including its transparent state when
+   keyboard focus moves elsewhere. Reset the error marker's pseudo geometry. */
+body:not(.is-mobile) .section-gallery-view .section-gallery-tile.is-video:focus-visible::after,
+body:not(.is-mobile) .section-gallery-view .section-gallery-tile.is-video.is-last-viewed::after {
+	position: absolute;
+	inset: 0;
+	z-index: 4;
+	display: block;
+	width: auto;
+	height: auto;
+	background: transparent;
+	border-radius: inherit;
+	outline: inherit;
+	outline-offset: inherit;
+	transform: none;
+	pointer-events: none;
+	content: '';
+}
+
 .section-gallery-view .section-gallery-tile.has-error .section-gallery-video-preview-unavailable {
 	position: absolute;
 	inset: 0;
@@ -2437,7 +2457,7 @@ body.is-android .modal.section-gallery-lightbox .section-gallery-lightbox-footer
 }
 
 .section-gallery-safe-area-probe {
-	--section-gallery-build-version: 0.9.9;
+	--section-gallery-build-version: 1.0.0;
 
 	position: fixed;
 	visibility: hidden;

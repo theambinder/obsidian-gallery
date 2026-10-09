@@ -1,7 +1,7 @@
 import { apiVersion, Modal, Notice, Platform, Setting, type App } from 'obsidian';
 import { getAndroidFileOpener } from './mobile-sharing';
 
-export const GALLERY_BUILD_VERSION = '0.9.9';
+export const GALLERY_BUILD_VERSION = '1.0.0';
 
 const VIEWER_NODES = {
 	modal: '.modal.section-gallery-lightbox',

@@ -2,9 +2,24 @@
 
 Browse images and videos from your active note in a searchable sidebar and a full-window viewer. Gallery works on desktop, iOS, and Android.
 
-![Gallery sidebar with image and video thumbnails](https://raw.githubusercontent.com/theambinder/obsidian-gallery/main/docs/images/gallery-sidebar.png)
-
-![Gallery full-window viewer with the thumbnail carousel](https://raw.githubusercontent.com/theambinder/obsidian-gallery/main/docs/images/gallery-viewer.png)
+<table>
+  <thead>
+    <tr>
+      <th>Desktop</th>
+      <th>Mobile</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td width="73%" valign="middle"><img src="https://raw.githubusercontent.com/theambinder/obsidian-gallery/main/docs/images/gallery-sidebar.png" alt="Gallery desktop sidebar with image and video thumbnails" width="100%"></td>
+      <td width="27%" valign="middle"><img src="https://raw.githubusercontent.com/theambinder/obsidian-gallery/main/docs/images/mobile-dark-tile.png" alt="Gallery mobile sidebar with image and video thumbnails" width="100%"></td>
+    </tr>
+    <tr>
+      <td width="73%" valign="middle"><img src="https://raw.githubusercontent.com/theambinder/obsidian-gallery/main/docs/images/gallery-viewer.png" alt="Gallery desktop full-window viewer with the thumbnail carousel" width="100%"></td>
+      <td width="27%" valign="middle"><img src="https://raw.githubusercontent.com/theambinder/obsidian-gallery/main/docs/images/mobile-dark-fullscreen.png" alt="Gallery mobile full-window viewer with the thumbnail carousel and file information" width="100%"></td>
+    </tr>
+  </tbody>
+</table>
 
 ## Features
 
